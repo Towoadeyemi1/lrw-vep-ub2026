@@ -30,18 +30,50 @@ Edit cells in `experiments/notebooks/01_workshop_followalong.ipynb` directly. Ta
 
 ### A1. Swap the gene in the prototype
 
-Modify `s2-pick-pair` to pick a pathogenic/benign pair from your gene instead of BRCA1, then rerun `s2-encode` and `s2-visualize` unchanged.
+Replace `s2-pick-pair` with the block below — it loads the per-gene variants, reconstructs WT from any one mutant FASTA entry by reverse-applying the substitution, and produces a `demo_pair` + `wt_seqs` in the shape `s2-encode` expects (column names + 0-indexed `protein_pos`). Then rerun `s2-encode` and `s2-visualize` unchanged.
 
 ```python
-# Replace the BRCA1 demo-pair load with a per-gene load.
 import pandas as pd
+
 GENE = "tp53"   # or brca2 / pten / mlh1
+
+# Load per-gene variants; clinvar/<gene>/variants.tsv uses different columns
+# than the BRCA1 demo_pair.tsv, so we rename to match s2-encode's expectations.
 df = pd.read_csv(f"../data/clinvar/{GENE}/variants.tsv", sep="\t")
 df = df[df.label.isin([0, 1])]
-demo_pair = pd.DataFrame([
-    df[df.label == 1].iloc[0],   # pathogenic
-    df[df.label == 0].iloc[0],   # benign
-])
+path_row   = df[df.label == 1].iloc[0]
+benign_row = df[df.label == 0].iloc[0]
+
+# Per-gene protein.fasta holds MUT sequences keyed by `clinvar_<variation_id>`.
+# Reverse-apply the pathogenic mutation to recover WT (BRCA2/TP53/etc. all
+# derive from a single UniProt canonical isoform).
+fasta = {}
+with open(f"../data/clinvar/{GENE}/protein.fasta") as f:
+    cur_id, cur_seq = None, []
+    for line in f:
+        line = line.rstrip()
+        if line.startswith(">"):
+            if cur_id is not None:
+                fasta[cur_id] = "".join(cur_seq)
+            cur_id, cur_seq = line[1:], []
+        else:
+            cur_seq.append(line)
+    fasta[cur_id] = "".join(cur_seq)
+
+mut_seq = fasta[f"clinvar_{path_row.variation_id}"]
+p0 = path_row.position - 1
+assert mut_seq[p0] == path_row.alt_aa, "FASTA/position mismatch — flag this"
+wt_seq = mut_seq[:p0] + path_row.wt_aa + mut_seq[p0 + 1:]
+
+# s2-encode reads variant_id / aa_ref / aa_alt / protein_pos (0-indexed) /
+# label, and indexes wt_seqs by variant_id.
+def _row(r, label):
+    return {"variant_id": f"clinvar_{r.variation_id}", "gene": GENE.upper(),
+            "aa_ref": r.wt_aa, "protein_pos": int(r.position) - 1,
+            "aa_alt": r.alt_aa, "label": label}
+
+demo_pair = pd.DataFrame([_row(path_row, 1), _row(benign_row, 0)])
+wt_seqs   = {row.variant_id: wt_seq for _, row in demo_pair.iterrows()}
 ```
 
 Question: does the LLR ordering match the Brandes sign convention (pathogenic more negative than benign) on your pair? If it inverts, that's an interesting case to flag.
@@ -50,52 +82,70 @@ Question: does the LLR ordering match the Brandes sign convention (pathogenic mo
 
 Adapt `s3-score-loop` to read from `experiments/data/clinvar/<gene>/variants.tsv` instead of the canonical 500-variant workshop set. The encode + `compute_llr` + `compute_delta_norm` body is unchanged; you're just feeding it a different table and reconstructing WT from the gene's `protein.fasta`.
 
-Compute the AUROC on your gene-specific dataset and compare to the BRCA1-workshop number [TBD-NUMBER: workshop set LLR AUROC]. Cleaner gene? Worse? What about your gene (variant counts, sequence length, fraction of variants at conserved residues) could explain the gap?
+Compute the AUROC on your gene-specific dataset and compare to the canonical n=500 workshop set's LLR AUROC of **0.930** (95% CI [0.906, 0.951]). Cleaner gene? Worse? What about your gene (variant counts, sequence length, fraction of variants at conserved residues) could explain the gap?
 
 ### A3. Add cosine distance as a third scorer
 
-`compute_cosine_distance(wt_emb, mut_emb)` is already in `experiments/notebooks/vep_utils.py`. Compute it per variant inside `s3-score-loop`, then add it to the scorers dict and replot `s3-distributions` with three KDEs.
+`compute_cosine_distance(wt_emb, mut_emb)` is already in `experiments/notebooks/vep_utils.py`. Three edits:
 
-```python
-# In s3-score-loop (per-variant, alongside the LLR and delta_norm calls):
-cos = compute_cosine_distance(wt_emb, mut_emb)
+1. **Force `s3-score-loop` to actually re-encode.** The cell short-circuits to the committed `data/s3_scores.npz` cache when present, so editing the per-variant loop body is a no-op until you delete the cache:
+   ```bash
+   rm experiments/notebooks/data/s3_scores.npz   # ~4 min re-encode on MPS will follow
+   ```
 
-# In s3-auroc (extend the scorers dict — higher cosine distance = more disruptive):
-scorers = {
-    'LLR':           (scores_df['llr'].values,         -scores_df['llr'].values),
-    'Delta L2 norm': (scores_df['delta_norm'].values,   scores_df['delta_norm'].values),
-    'Cosine dist':   (scores_df['cosine_dist'].values,  scores_df['cosine_dist'].values),
-}
-```
+2. **In `s3-score-loop`**, alongside the LLR and delta_norm calls inside the per-variant body, compute cosine and append it to a parallel list (next to `llr_vals` / `dn`), then include it in the `scores_df` built at the bottom of the cell:
+   ```python
+   cos = compute_cosine_distance(wt_emb, mut_emb)   # per variant, inside the loop
+   # ...add cos_vals.append(cos) alongside llr_vals.append(llr), etc.
+   # ...add cosine_dist=cos_vals when building scores_df at the end of the cell.
+   ```
+
+3. **In `s3-auroc`**, extend the scorers tuple-dict (`s3-distributions` and `s3-roc` reuse it, so they update automatically):
+   ```python
+   scorers = {
+       'LLR':           (scores_df['llr'].values,         -scores_df['llr'].values),
+       'Delta L2 norm': (scores_df['delta_norm'].values,   scores_df['delta_norm'].values),
+       'Cosine dist':   (scores_df['cosine_dist'].values,  scores_df['cosine_dist'].values),
+   }
+   ```
 
 Question: does cosine sit between delta_norm and LLR on AUROC, or elsewhere? Why?
 
 ### A4. Per-gene asymmetry
 
-The workshop set's "pathogenic distribution is wider than benign" asymmetry is across 400 genes pooled. Filter `s3-distributions` to a single gene and see if the asymmetry holds. Only a handful of genes have ≥10 variants; check `scores_df.gene.value_counts().head(20)` to pick one.
+The workshop set's "pathogenic distribution is wider than benign" asymmetry is across 400 genes pooled. Filter `s3-distributions` to a single gene and see if the asymmetry holds. Only a handful of genes have enough variants for a KDE to be honest; in the n=500 cache the highest counts are roughly FBN1 ≈ 11, BRCA2 ≈ 7, LDLR ≈ 6, BRCA1 ≈ 5. Confirm with `scores_df.gene.value_counts().head(10)`.
 
 ```python
-gene = "BRCA2"
+gene = "FBN1"   # top-count gene with both classes; FBN1 is also entirely pathogenic in cache
 sub   = scores_df[scores_df.gene == gene]
 y_sub = sub['label'].values
 # Replot s3-distributions using `sub` and `y_sub` in place of `scores_df` and `y`.
+# Many top-count genes are label-skewed (FBN1 all P; BRCA1 all B). If your pick
+# has only one class, the KDE will be a single distribution — that's its own
+# finding worth flagging.
 ```
 
 Question: does the asymmetry survive on a single gene, or is it an artifact of pooling many genes with different baseline distributions?
 
 ### A5. Sequence-length confounding
 
-In `s3-seqlen`, color by gene to see whether any apparent length effect is actually a single-gene effect.
+In `s3-seqlen`, color by a low-cardinality categorical to see whether any apparent length effect is actually concentrated in one regime. The workshop set has 400 unique genes, so `hue="gene"` directly produces 400 colors and an unreadable plot — bucket first.
 
 ```python
 import seaborn as sns
-sns.scatterplot(
-    data=scores_df, x="seq_len", y="llr",
-    hue="gene", alpha=0.6, legend=False,
+# Option A: bucket by long-protein truncation regime (the most interesting cut).
+scores_df["regime"] = scores_df["seq_len"].apply(
+    lambda L: "short ≤1022" if L <= 1022 else "long >1022"
 )
+sns.scatterplot(data=scores_df, x="seq_len", y="llr", hue="regime", alpha=0.6)
+
+# Option B: highlight top-N genes by variant count, lump the rest into "other".
+top = scores_df["gene"].value_counts().head(5).index
+scores_df["gene_hue"] = scores_df["gene"].where(scores_df["gene"].isin(top), "other")
+sns.scatterplot(data=scores_df, x="seq_len", y="llr", hue="gene_hue", alpha=0.6)
 ```
 
-Question: are specific genes systematically scored higher or lower? Is the BRCA2 long-protein cluster (where truncation kicks in past 1022 aa) visible as its own band?
+Question: are specific genes or length regimes systematically scored higher or lower? Is the long-protein cluster (where Brandes truncation kicks in past 1022 aa) visible as its own band?
 
 ## Branch B — drive an agent
 
@@ -107,16 +157,25 @@ Open the notebook to `s4-sweep-prompt` and copy the markdown cell's text into yo
 
 ### B2. Disagreement diagnostic
 
-Find variants where LLR and delta_norm disagree most strongly:
+Find variants where the two scorers disagree on direction — LLR ranks pathogenic but delta_norm ranks benign, or vice versa:
 
 ```python
 import scipy.stats as ss
 scores_df["llr_z"] = ss.zscore(-scores_df.llr)        # higher = more pathogenic
 scores_df["dn_z"]  = ss.zscore(scores_df.delta_norm)  # higher = more pathogenic
-disagree = (scores_df.llr_z - scores_df.dn_z).abs().nlargest(5)
-print(scores_df.loc[disagree.index,
-                    ['variant_id', 'gene', 'label', 'llr', 'delta_norm']])
+gap = scores_df.llr_z - scores_df.dn_z
+
+# LLR ranks pathogenic but delta_norm ranks benign (LLR > delta_norm in z-space):
+llr_calls_p = scores_df.loc[gap.nlargest(5).index,
+                            ['variant_id', 'gene', 'label', 'llr', 'delta_norm']]
+# Reverse — delta_norm ranks pathogenic but LLR ranks benign:
+dn_calls_p  = scores_df.loc[gap.nsmallest(5).index,
+                            ['variant_id', 'gene', 'label', 'llr', 'delta_norm']]
+print("LLR-pathogenic / dn-benign:\n", llr_calls_p, "\n")
+print("dn-pathogenic / LLR-benign:\n", dn_calls_p)
 ```
+
+(`gap.abs().nlargest(5)` would find variants "extreme on both scorers in agreement" — not what you want. The signed `nlargest` / `nsmallest` split above isolates the directional disagreements.)
 
 Pick one disagreement case and paste into Claude Code:
 
@@ -124,17 +183,29 @@ Pick one disagreement case and paste into Claude Code:
 
 ### B3. Methods paragraph for your gene
 
-Adapt `s4-paper-prompt` to the gene-specific analysis you produced in A2. Paste:
+`s4-paper-prompt` scaffolds the *whole* paper project via expaper — a different scope from what you want here. For B3, ignore the s4 prompt and write directly against `paper/main.tex` (which already has a §Methods). Paste:
 
-> I want to extend `paper/main.tex` with a gene-specific paragraph in §Methods for `<YOUR_GENE>` (n=`<variant count>`, LLR AUROC=`<your A2 number>`). Match the existing voice — present tense, direct, no hedge words. Cite Brandes 2023 by DOI for the LLR formulation. Call out any methodological deviation from the canonical n=500 workshop set, e.g. truncation policy if your gene exceeds 1022 aa, or label-scope differences if your gene's ClinVar distribution looks unusual.
+> I want to extend `paper/main.tex` §Methods with a gene-specific paragraph for `<YOUR_GENE>` (n=`<variant count>`, LLR AUROC=`<your A2 number>`). Match the existing §Methods voice — present tense, direct, no hedge words. Cite Brandes 2023 by DOI for the LLR formulation. Call out any methodological deviation from the canonical n=500 workshop set, e.g. truncation policy if your gene exceeds 1022 aa, or label-scope differences if your gene's ClinVar distribution looks unusual.
 
 When the agent comes back, diff its paragraph against the existing `paper/main.tex` §Methods. Would the paragraph actually land in the paper?
 
 ### B4. Distribution hypothesis
 
-From A4 you know your gene's pathogenic median LLR. Compare to BRCA1's [TBD-NUMBER: BRCA1 pathogenic median LLR]. Paste:
+The n=500 workshop cache happens to contain **no pathogenic BRCA1 rows** (all 5 BRCA1 entries are benign), so a BRCA1-specific pathogenic-median anchor isn't available from the cache. Use the **overall pathogenic median** across the 500-variant set as your baseline instead. Compute both:
 
-> My gene `<YOUR_GENE>` has pathogenic median LLR `<your value>`, vs BRCA1's `[TBD-NUMBER]`. ESM-1b is the same checkpoint, same scoring rule, same truncation policy in both cases. Walk through why a gene's pathogenic-distribution median might differ from another gene's — protein length, conservation pressure at the variant sites, fraction of variants at deeply conserved residues, ClinVar curation density, Mendelian-disease-gene tilt. Rank these explanations by which likely dominates for `<YOUR_GENE>` specifically.
+```python
+overall_path_median = scores_df.loc[scores_df.label == 1, 'llr'].median()
+my_gene_path_median = scores_df.loc[
+    (scores_df.gene == "<YOUR_GENE>") & (scores_df.label == 1), 'llr'
+].median()
+print(overall_path_median, my_gene_path_median)
+```
+
+(If your gene has zero pathogenic rows in the cache, run A2 first to score the gene's own ClinVar pull, then take the median from that.)
+
+Paste:
+
+> My gene `<YOUR_GENE>` has pathogenic median LLR `<my_gene_path_median>`, vs the n=500 workshop set's overall pathogenic median of `<overall_path_median>`. ESM-1b is the same checkpoint, same scoring rule, same truncation policy in both cases. Walk through why a gene's pathogenic-distribution median might differ from the cross-gene baseline — protein length, conservation pressure at the variant sites, fraction of variants at deeply conserved residues, ClinVar curation density, Mendelian-disease-gene tilt. Rank these explanations by which likely dominates for `<YOUR_GENE>` specifically.
 
 ## Branch C — inspect the harness
 
