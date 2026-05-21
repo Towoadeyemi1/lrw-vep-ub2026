@@ -90,6 +90,7 @@ Compute the AUROC on your gene-specific dataset and compare to the canonical n=5
 
 1. **Force `s3-score-loop` to actually re-encode.** The cell short-circuits to the committed `data/s3_scores.npz` cache when present, so editing the per-variant loop body is a no-op until you delete the cache:
    ```bash
+   # Run from the repo root, or adjust the path if you're inside experiments/notebooks/.
    rm experiments/notebooks/data/s3_scores.npz   # ~4 min re-encode on MPS will follow
    ```
 
@@ -201,7 +202,7 @@ my_gene_path_median = scores_df.loc[
 print(overall_path_median, my_gene_path_median)
 ```
 
-(If your gene has zero pathogenic rows in the cache, run A2 first to score the gene's own ClinVar pull, then take the median from that.)
+(Heads-up: in the n=500 cache, **BRCA1 and TP53 happen to have zero pathogenic rows** — `my_gene_path_median` will come out `NaN` for those. If your gene is in that boat, run A2 first to score the gene's own ClinVar pull, then take the median from that.)
 
 Paste:
 
