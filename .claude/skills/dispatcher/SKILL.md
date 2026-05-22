@@ -139,6 +139,66 @@ the human) runs the dispatch script in a visible step. This keeps the
 substrate choice auditable and the side effects under the caller's
 control.
 
+### 4. Monitor the dispatched run
+
+Once the worker is dispatched, you have a **run handle** (output-file
+path for local substrates, job id + ssh alias for SLURM). Pass the
+substrate + handle to `monitor.py` to get a substrate-aware monitor
+command, then pipe that into Claude Code's `Monitor` tool (or run it
+in a shell).
+
+```bash
+# Local (the worker's stdout/log file)
+python3 scripts/monitor.py --substrate mps \
+    --stdout-file /path/to/run.log
+
+# SLURM
+python3 scripts/monitor.py --substrate slurm \
+    --ssh-alias my-cluster --jobid 12345
+```
+
+Returns a plan whose `monitor_command` field is the literal shell pipe
+the caller arms:
+
+```json
+{
+  "substrate": "mps",
+  "monitor_command": "tail -F /path/to/run.log | grep -E --line-buffered '<progress>|<failure>|<success>'",
+  "handle": {"stdout_file": "/path/to/run.log"},
+  "patterns": {"progress_regex": "...", "failure_regex": "...", "success_regex": "..."},
+  "use_with": "pipe into Claude Code's Monitor tool ..."
+}
+```
+
+**Local substrates** (`local_cpu`/`local_gpu`/`mps`): `tail -F` plus a
+`grep -E --line-buffered` whose regex is the alternation of three
+patterns — a customizable **progress** regex (default matches `[N/M]`
+tickers, `step=`, `loss=`, `ETA=`), a non-narrowable **failure** regex
+(`Traceback|Error|FAILED|Killed|OOM|RuntimeError|...`), and a
+**success** regex (`[OK]`, `wrote *.npz/pt/json/csv`). The failure set
+is load-bearing: per Monitor's contract, *silence is not success* — a
+grep that only matches the happy path stays silent through crashes,
+hangs, and OOMs, which looks identical to "still running". Override
+the progress regex with `--progress-regex` to tune to your worker;
+leave the failure/success sets alone.
+
+**SLURM**: a poll loop over `ssh <alias> sacct -j <jobid>` (not
+`squeue` — squeue drops the job from its view ~5 min after
+completion). One event per state change; exits on any terminal state
+(`COMPLETED`, `FAILED`, `CANCELLED`, `TIMEOUT`, `OUT_OF_MEMORY`,
+`NODE_FAIL`, `BOOT_FAIL`, `DEADLINE`, `PREEMPTED`, or `UNKNOWN` if
+ssh breaks). Default poll cadence is 60s — well under any sensible
+cluster rate limit. For chained-access backends, walk the route plan's
+`access_chain` first; `--ssh-alias` here is the final hop. To also
+tail SLURM log content (not just state), arm a second monitor with
+`--substrate local_*` against the cluster-mounted log path or wrap in
+`ssh <alias> tail -F <path>`.
+
+**Emit-only, same as routing.** `monitor.py` doesn't watch anything
+itself — it emits the command the caller arms. Same auditability
+property as `route.py`: the substrate choice *and* the watch shape are
+visible in the chat, not buried in a long-lived background process.
+
 ## Routing decision tree
 
 ```

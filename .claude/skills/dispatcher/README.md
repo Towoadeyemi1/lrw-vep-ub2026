@@ -11,6 +11,7 @@ is the workshop-load-bearing subset.
 - `references/backend_schema.md` — manifest schema for remote SLURM backends
 - `references/backends/_template.json` — starter manifest
 - `scripts/route.py` — the router (workload → plan)
+- `scripts/monitor.py` — substrate-aware monitor command emitter (pipe into Claude Code's `Monitor` tool)
 - `scripts/check_local.sh` — local CPU/GPU/MPS detection
 - `scripts/check_slurm.sh` — SLURM backend reachability probe
 - `scripts/detect_substrates.sh` — orchestrator (called by `route.py`)
