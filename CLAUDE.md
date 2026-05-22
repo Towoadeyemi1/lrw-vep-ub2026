@@ -28,6 +28,7 @@ cross-doc pointers ARCHITECTURE.md can't surface on its own:
 | How `manylatents-omics` works internally | `experiments/tools/manylatents-omics/{ARCHITECTURE,CLAUDE}.md` |
 | Append-only chronicle of runs | [`experiments/EXPERIMENT_LOG.md`](./experiments/EXPERIMENT_LOG.md) |
 | Figure → script → input lineage | [`experiments/PROVENANCE.md`](./experiments/PROVENANCE.md) |
+| Paper generation (prompt + contract) | [`experiments/PROVENANCE.md`](./experiments/PROVENANCE.md) :: `paper/main.tex` and [`paper/GENERATION_PROMPT.md`](./paper/GENERATION_PROMPT.md) |
 | How to compile / sync the paper | this file → *Overleaf sync* |
 | How an agent should behave when handoffs land | this file → *Operating principles* |
 
