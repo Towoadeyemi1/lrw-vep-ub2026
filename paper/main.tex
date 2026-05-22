@@ -72,6 +72,7 @@ primitives the agent can drive from a single prompt.
 % locked. Should land on the "agent failure mode is silent misalignment"
 % framing — predictions that look reasonable but used the wrong embedding
 % space.
+% Required citations: brandes2023, landrum2018clinvar (already in this section)
 
 \section{Related Work}
 \label{sec:related-work}
@@ -92,6 +93,7 @@ designs.
 
 % TODO(agent): add a paragraph on agentic-research engineering /
 % Claude-Code-driven research workflows once canonical citations are settled.
+% Required citations: TBD — add to shared/bib/references.bib (DOI-pinned) before citing.
 
 \section{Methods}
 \label{sec:methods}
@@ -131,6 +133,12 @@ matching \citeauthor{brandes2023}'s label-scope binarization
 \label{sec:results}
 
 % TODO(agent): expand once the slide deck's narration is locked.
+% Required citations: brandes2023
+% Required values from experiments/notebooks/data/workshop_set_manifest.json:
+%   evaluation.metrics.{llr_auroc, llr_auroc_ci95_bootstrap}
+%   evaluation.literature_anchor.{llr_auroc, n, reference}
+% Required figure: resolution_panels (already \includegraphics'd below)
+% Required PROVENANCE entry: "Resolution panels (slide: Part 2 'Resolution')"
 
 The LLR scorer reaches AUROC $0.930$ on the workshop set (95\% CI
 $[0.906, 0.951]$ via 10k-resample bootstrap, seed $42$);
@@ -159,9 +167,16 @@ the literature anchor at $n{=}36{,}537$ (the ceiling).
 
 % TODO(agent): one paragraph each on (a) what the harness made cheap,
 % (b) what the agent still needed human input for, (c) failure modes
-% encountered, (d) honest limitations: the $n{=}500$ set's gene-singleton
-% structure (338/400 are 1-of-1), ESM-1b's 1022-aa context window, the
-% cluster-handoff path that is wired but not exercised here.
+% encountered, (d) honest limitations.
+% Required citations: brandes2023
+% Required values from experiments/notebooks/data/workshop_set_manifest.json:
+%   evaluation.metrics.llr_auroc            (must match §Results)
+%   evaluation.literature_anchor.{inside_workshop_ci95, note}
+%   universe_filters.variant_type           (SNPs only, no indels)
+%   composition.{unique_genes, singleton_genes}   (400 genes; 338/400 singletons)
+% Reference: experiments/EXPERIMENT_LOG.md
+%   2026-05-13 (Brandes-correct LLR + sign-fix scar)
+%   2026-05-12 (MAX_LEN off-by-2 — crashed on BRCA1 L1854P, the demo pair)
 
 \section*{Acknowledgments}
 
