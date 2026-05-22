@@ -254,6 +254,7 @@ single-window method at the same window size.
 ## paper/main.tex
 
 - **Generator:**       Claude Code via `paper/GENERATION_PROMPT.md`.
+- **Canonical author:** César Miguel Valdez Córdova — Mila / Quebec AI Institute — McGill University — `cesar.valdez@mila.quebec`. Use this exact author block when generating `paper/main.tex`; do not invent affiliations or substitute personal email addresses.
 - **Required reads:**
   - `CLAUDE.md`, `ARCHITECTURE.md` — orientation.
   - `experiments/notebooks/vep_utils.py::compute_llr` — methodology source for §Methods. Derive from this live code; do not infer from prior prose.
