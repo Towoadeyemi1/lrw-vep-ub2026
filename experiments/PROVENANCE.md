@@ -248,3 +248,142 @@ single-window method at the same window size.
   - **Visual consistency with `04_demo_pair_delta_norm.py` and `01_resolution_panels.py` Panel A:** identical figsize (5.0 × 4.0), color palette, bar geometry (bars up from y=0), value-label treatment, and class subtitles, so the triplet stack cleanly in slides.
 - Use: slide-deck plot for the "compute LLR on the demo pair" moment. Paired with `demo_pair_delta_norm.{pdf,png}` to contrast scorer strengths — −LLR's 1.74× ratio vs delta_norm's 1.10× ratio on the same pair.
 - Generated: 2026-05-21 against the same demo-pair JSON used by `04_demo_pair_delta_norm.py`. Regenerate via `uv run python experiments/analysis/05_demo_pair_llr.py`.
+
+---
+
+# Paper section spine (paper/skeleton.tex → paper/main.tex)
+
+The skeleton at `paper/skeleton.tex` is structure only — preamble, section
+headers, figure placeholder, bibliography wiring. Each section body is a
+single TODO pointing back here. Agents filling the skeleton must read the
+named PROVENANCE entry, manifest keys, source files, and EXPERIMENT_LOG
+entries before writing a single line of prose. If a referenced key is
+missing or the script can't reach it, stop and ask — do not invent.
+
+The validator (`experiments/notebooks/validate_paper.py --real-paper`)
+enforces: every \cite-key resolves to a bib entry with a `doi` field;
+every \includegraphics resolves on the parsed graphicspath; the manifest's
+`evaluation.metrics.llr_auroc` (3- or 4-decimal precision) is present in
+the source. Run it at the end of every section-fill, not just at the end
+of the paper.
+
+---
+
+## §Abstract
+
+- **Skeleton location:** the `\begin{abstract}...\end{abstract}` block in `paper/skeleton.tex`.
+- **Required values from `experiments/notebooks/data/workshop_set_manifest.json`:**
+  - `evaluation.metrics.llr_auroc`
+  - `evaluation.metrics.llr_auroc_ci95_bootstrap`
+  - `evaluation.literature_anchor.llr_auroc`
+  - `evaluation.literature_anchor.n`
+- **Required citations** (must exist in `shared/bib/references.bib`):
+  - `brandes2023`
+- **Length:** 4–6 sentences, single paragraph. The reader should know whether to keep reading after the first four sentences.
+- **Validator:** AUROC must appear (3- or 4-decimal precision).
+
+---
+
+## §Introduction
+
+- **Skeleton location:** `\section{Introduction}` block.
+- **Required citations:**
+  - `brandes2023`, `rives2021esm`, `landrum2018clinvar`
+- **Required values:** none — qualitative paragraph(s).
+- **Length:** 1–2 paragraphs. Lead with the stakes (why VEP, why now); establish the gap (silent misalignment as the agent failure mode); preview what the harness adds.
+
+---
+
+## §Related Work
+
+- **Skeleton location:** `\section{Related Work}` block.
+- **Required citations:**
+  - Protein language models: `rives2021esm` (ESM-1), `lin2023esm` (ESM-2), `brandes2023` (ESM-1b zero-shot VEP).
+  - Cross-modal foundation models (optional): `nguyen2024evo2`.
+- **Length:** 1–2 short paragraphs, or 2–3 `\paragraph{}` stubs. One sentence per category, each backed by a `\citep`.
+
+---
+
+## §Methods
+
+- **Skeleton location:** `\section{Methods}` block.
+- **Required source files** (read these BEFORE writing, derive the formula from the code, not from prior prose):
+  - `experiments/notebooks/vep_utils.py::compute_llr` — the LLR formula.
+  - `experiments/notebooks/vep_utils.py::truncate_around_mutation` — variant-centered single-window truncation (Brandes Option 4).
+  - `experiments/notebooks/vep_utils.py::ESM1bEncoder` — the encoder; note `MAX_LEN = 1022`.
+- **Required values from manifest:**
+  - `composition.total_variants` (= 500)
+  - `sampling.n_pathogenic` + `sampling.n_benign` (= 250 + 250)
+  - `composition.unique_genes` (= 400)
+  - `universe_filters.binarization.label_source` (ClinSigSimple binarization, matching Brandes)
+- **Required citations:**
+  - `brandes2023` (the methodology anchor), `rives2021esm` (ESM-1b), `landrum2018clinvar` (the dataset source).
+- **Required figure:** none (Methods is prose + the LLR equation block).
+- **EXPERIMENT_LOG refs:** none required for Methods prose itself — the scars are surfaced in §Discussion.
+- **CRITICAL — anti-regression note:**
+
+  > The LLR formula is **Brandes-correct single-pass**:
+  > `LLR = log P(mut | WT_seq) − log P(wt | WT_seq)`,
+  > both probabilities read from the **same softmax** at the variant position
+  > after **one** ESM-1b forward pass on the **wild-type** context.
+  > **Sign convention: negative = deleterious** (mutant less likely than wild-type).
+  > The AUROC predictor is `-LLR` so pathogenic is the positive class.
+  >
+  > These two facts — single-pass and negative=deleterious — are the LLR scar
+  > caught at EXPERIMENT_LOG.md 2026-05-13 ("Brandes-correct LLR + S3 cache
+  > regeneration", commits `565958a` and `3eabc0e`). The earlier two-pass
+  > formula with inverted sign produced AUROC 0.929; the Brandes-correct
+  > methodology produces 0.930. Right number, wrong methodology — if you
+  > write a §Methods that drifts from compute_llr's actual implementation,
+  > the validator will not catch it (it bites on DOI / figure / AUROC
+  > presence, not on sign convention). Derive from the code; do not infer
+  > from prior papers' prose.
+
+- **Length:** 1–2 paragraphs + the boxed LLR equation + 1 paragraph on truncation policy + 1 paragraph naming the validation set.
+
+---
+
+## §Results
+
+- **Skeleton location:** `\section{Results}` block (figure `resolution_panels` is already wired into the skeleton; do not regenerate).
+- **Required values from manifest:**
+  - `evaluation.metrics.llr_auroc` (= 0.930032)
+  - `evaluation.metrics.llr_auroc_ci95_bootstrap` (= [0.9062, 0.9512])
+  - `evaluation.metrics.delta_norm_auroc` (= 0.671808; the L2-baseline contrast)
+  - `evaluation.metrics.bootstrap_n_resamples` (= 10000)
+  - `evaluation.metrics.bootstrap_seed` (= 42)
+  - `evaluation.literature_anchor.{llr_auroc, n, reference, inside_workshop_ci95, note}`
+- **Required citations:** `brandes2023`.
+- **Required figure caption:** name all three panels — (A) demo-pair LLR, (B) n=500 ROC, (C) Brandes n=36,537 anchor at 0.905. Walk left-to-right and close with the ceiling-gap interpretation. The figure caption itself is a TODO in the skeleton.
+- **Related PROVENANCE entry:** `PROVENANCE.md` :: "Resolution panels (slide: Part 2 'Resolution')" — for the figure's reproduction lineage.
+- **Length:** 1–2 paragraphs of prose framing the figure.
+
+---
+
+## §Discussion
+
+- **Skeleton location:** `\section{Discussion}` block.
+- **Required values from manifest** (each captures one honest-limitations bullet):
+  - `composition.singleton_genes` (= 338) and `composition.unique_genes` (= 400) — the gene-singleton structure of the workshop set.
+  - `universe_filters.variant_type` (= "single nucleotide variant") — SNPs only, no indels.
+  - `evaluation.literature_anchor.inside_workshop_ci95` (= False) + `evaluation.literature_anchor.note` — the anchor-vs-CI caveat.
+  - `evaluation.metrics.llr_auroc` (must match the value reported in §Results).
+- **Required EXPERIMENT_LOG entries:**
+  - `2026-05-13` — "Brandes-correct LLR + S3 cache regeneration". The LLR sign-and-formula scar.
+  - `2026-05-12` — "MAX_LEN off-by-2 fix + S3 cache regeneration". The context-window scar; crashed specifically on BRCA1 L1854P (the demo pair).
+- **Required citations:** `brandes2023`.
+- **Length:** 3–4 short paragraphs covering (a) what the harness made cheap, (b) what the agent still needed human input for, (c) failure modes encountered (cite the two EXPERIMENT_LOG entries as receipts), (d) honest limitations.
+
+---
+
+## How to fill the skeleton
+
+Before writing any section:
+
+1. Read this file's per-section entry for the section you're filling.
+2. Read every named manifest key (`workshop_set_manifest.json`).
+3. Read every named source file (for §Methods, this is non-negotiable — read `vep_utils.py` first).
+4. Read every named EXPERIMENT_LOG entry (for §Discussion).
+5. Write the section using only the values you just read.
+6. Run `validate_paper.py --real-paper`. Iterate until it passes.
+7. Do not edit `paper/skeleton.tex` — it stays as the template for future regenerations. The generated paper goes to `paper/main.tex`.
