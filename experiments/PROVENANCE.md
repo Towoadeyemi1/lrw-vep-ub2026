@@ -198,3 +198,53 @@ single-window method at the same window size.
   - **No encoder calls.** Reads the cached score table; bit-identical given a fresh cache, ≲30 s on CPU.
 - Use: the smoke-test paper from `validate_paper.py` `\includegraphics`'s this figure as its headline visual; same paper-anchor (§Results) the slide deck cites.
 - Generated: 2026-05-14 against the s3 cache rebuilt 2026-05-13 (Brandes-correct LLR; see `EXPERIMENT_LOG.md` 2026-05-13). Regenerate via `experiments/tools/manylatents-omics/.venv/bin/python experiments/analysis/02_llr_distribution.py`.
+
+---
+
+## Delta-norm distribution (L2 baseline §Results figure, n=500, with demo pair)
+
+- Script: `analysis/03_delta_norm_distribution.py`
+- Inputs:
+  - `notebooks/data/s3_scores.npz` (sha256 `c00eeae60744…`, 500 rows) — same cache `02_llr_distribution.py` reads; the `delta_norm` column comes from `vep_utils.compute_delta_norm` (L2 of the mean-pooled WT→MUT embedding shift).
+  - `analysis/data/demo_pair_scores.json` (sha256 `acc170ccd948…`) — BRCA1 demo pair scored on the same fp32 MPS encoder by `experiments/scripts/score_demo_pair.py`. Supplies the two vertical markers overlaid on the population KDE.
+  - `notebooks/data/workshop_set_manifest.json` (sha256 `08afc36298a1…`) for the anchor AUROC; script asserts the computed AUROC matches `evaluation.metrics.delta_norm_auroc` within 5e-4.
+- Outputs:
+  - `analysis/figures/delta_norm_distribution_500.{pdf,png}` — pathogenic vs benign KDEs with AUROC + 95 % CI in the title; demo pair (BRCA1 L1854P, P1859R) as dotted vertical lines with δ-value annotations.
+  - `analysis/results/delta_norm_distribution_500.csv` — long-form `(variant_id, gene, label, delta_norm)`.
+  - `analysis/results/delta_norm_distribution_500.json` — `(auroc, ci95_lo, ci95_hi, n_variants, n_pathogenic, n_benign, n_bootstrap, bootstrap_seed, auroc_predictor, demo_pair)`.
+- Conventions:
+  - **Bootstrap:** `n_resamples=10000`, `seed=42`, predictor `+delta_norm` (higher ⇒ pathogenic; sklearn positive-class = pathogenic).
+  - **No encoder calls.** Reads the cached score table + the cached demo-pair JSON; <10 s on CPU.
+- Use: slide-deck companion to `llr_distribution_500.{pdf,png}` — same population, weaker signal (AUROC 0.672 vs LLR's 0.930), and the demo pair markers make the "hand-picked for LLR signal, not L2" point visible at a glance.
+- Generated: 2026-05-21 against the s3 cache re-encoded the same day (bit-identical to the 2026-05-13 rebuild — sha unchanged; see `EXPERIMENT_LOG.md` 2026-05-21). Regenerate via `uv run python experiments/analysis/03_delta_norm_distribution.py`.
+
+---
+
+## Demo-pair delta-norm (slide figure, n=2)
+
+- Script: `analysis/04_demo_pair_delta_norm.py`
+- Inputs:
+  - `analysis/data/demo_pair_scores.json` (sha256 `acc170ccd948…`) — BRCA1 demo pair scored on `vep_utils.ESM1bEncoder` (HF transformers, fp32 MPS) by `experiments/scripts/score_demo_pair.py`. Same artifact `03_delta_norm_distribution.py` reads for its overlay markers.
+- Outputs:
+  - `analysis/figures/demo_pair_delta_norm.{pdf,png}` — two-bar chart, pathogenic (L1854P) vs benign (P1859R), bar height = `delta_norm`, values labeled above each bar.
+  - `analysis/results/demo_pair_delta_norm.csv` — `(hgvs, class, delta_norm)`, 2 rows.
+- Conventions:
+  - **No encoder calls.** Reads the cached pair JSON; <2 s on CPU.
+- Use: slide-deck plot for the "compute L2 on the demo pair" moment — the literal n=2 artifact. Pairs with the n=500 distribution-with-overlay (`delta_norm_distribution_500.{pdf,png}`) for the population-context slide.
+- Generated: 2026-05-21 against the same demo-pair JSON used by the 2026-05-14 demo-pair LLR work. Regenerate via `uv run python experiments/analysis/04_demo_pair_delta_norm.py`.
+
+---
+
+## Demo-pair LLR (slide figure, n=2)
+
+- Script: `analysis/05_demo_pair_llr.py`
+- Inputs:
+  - `analysis/data/demo_pair_scores.json` (sha256 `acc170ccd948…`) — same cached pair scoring that `04_demo_pair_delta_norm.py` reads.
+- Outputs:
+  - `analysis/figures/demo_pair_llr.{pdf,png}` — two-bar chart, pathogenic (L1854P) vs benign (P1859R), bars going **up** from y=0; y-axis is −LLR (deleteriousness flip). Raw LLR is preserved as an annotation under each `−LLR` value so the sign convention is transparent.
+  - `analysis/results/demo_pair_llr.csv` — `(hgvs, class, llr, neg_llr)`, 2 rows.
+- Conventions:
+  - **−LLR (deleteriousness) sign convention** — same as Panel A of `01_resolution_panels.py`. Raw LLR is negative for pathogenic variants (Brandes); negating it puts the pathogenic bar visually above the benign one. Bar value labels show `+<−LLR>` with `(LLR <raw>)` underneath.
+  - **Visual consistency with `04_demo_pair_delta_norm.py` and `01_resolution_panels.py` Panel A:** identical figsize (5.0 × 4.0), color palette, bar geometry (bars up from y=0), value-label treatment, and class subtitles, so the triplet stack cleanly in slides.
+- Use: slide-deck plot for the "compute LLR on the demo pair" moment. Paired with `demo_pair_delta_norm.{pdf,png}` to contrast scorer strengths — −LLR's 1.74× ratio vs delta_norm's 1.10× ratio on the same pair.
+- Generated: 2026-05-21 against the same demo-pair JSON used by `04_demo_pair_delta_norm.py`. Regenerate via `uv run python experiments/analysis/05_demo_pair_llr.py`.

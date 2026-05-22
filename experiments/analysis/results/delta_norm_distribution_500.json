@@ -1,0 +1,22 @@
+{
+  "scorer": "delta_norm",
+  "auroc": 0.6718080000000001,
+  "ci95_lo": 0.6234621254869612,
+  "ci95_hi": 0.7187315619808624,
+  "n_variants": 500,
+  "n_pathogenic": 250,
+  "n_benign": 250,
+  "n_bootstrap": 10000,
+  "bootstrap_seed": 42,
+  "auroc_predictor": "+delta_norm",
+  "demo_pair": {
+    "pathogenic": {
+      "hgvs": "L1854P",
+      "delta_norm": 0.029617857187986374
+    },
+    "benign": {
+      "hgvs": "P1859R",
+      "delta_norm": 0.026919297873973846
+    }
+  }
+}

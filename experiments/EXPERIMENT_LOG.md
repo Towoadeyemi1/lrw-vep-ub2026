@@ -342,3 +342,16 @@ Consolidates four runs across 2026-05-07 (workshop-pace, sandboxed agent re-run,
 
   ESM-1b encoded all 200 sequences in 4:32 on Mac arm64 MPS (1.36 s/seq). First-time wall clock including weights download was ~7 min. Cached, the demo will be ~5 min end-to-end. UMAP step adds ~5 s.
 
+
+## 2026-05-21 — s3_scores.npz re-encode + 03_delta_norm_distribution.py (first)
+
+- **Pin:** manylatents-omics `792f8c6` (main); workshop venv (HF transformers, fp32 MPS).
+- **Cmd (regen cache):** `uv run python experiments/scripts/cache_s3_scores.py --device mps --force`
+- **Cmd (figure):** `uv run python experiments/analysis/03_delta_norm_distribution.py`
+- **Encode timing:** 500 / 500 variants in 3.7 min on MPS (2.25 var/s); 0 skipped.
+- **Determinism:** `s3_scores.npz` sha256 `c00eeae60744…` — bit-identical to the 2026-05-13 rebuild. Useful workshop story: fp32 ESM-1b on MPS is deterministic across re-encodes.
+- **Numbers (delta_norm):** AUROC = 0.6718  CI95 = [0.6235, 0.7187]  n = 500  → matches `delta_norm_auroc = 0.671808` anchor within 5e-4.
+- **Output:** `analysis/figures/delta_norm_distribution_500.{pdf,png}`, `analysis/results/delta_norm_distribution_500.{csv,json}`.
+- **Slide story:** L2 separates weakly (0.67 vs LLR 0.93). The BRCA1 demo pair (L1854P δ=0.030, P1859R δ=0.027) lands left of both class medians (P 0.061, B 0.040) — the pair was hand-picked for LLR clarity, not L2 magnitude, and the figure makes that visible.
+- **Provenance:** entry appended to `PROVENANCE.md` under "Delta-norm distribution".
+- **Dispatcher:** routing decision (mps, 1 worker) emitted by `~/.claude/skills/dispatcher/scripts/route.py`; the same skill now ships a `monitor.py` (mirrored to `.claude/skills/dispatcher/` in this repo) that emits the tail+grep filter pipeline used to watch the run.

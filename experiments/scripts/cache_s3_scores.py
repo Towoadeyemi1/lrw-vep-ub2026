@@ -70,6 +70,13 @@ def main() -> int:
         default=None,
         help="Cap variant count (debug only — production cache should score all).",
     )
+    ap.add_argument(
+        "--log-wandb",
+        action="store_true",
+        help="Log the sweep to wandb (entity/project from $WANDB_ENTITY / "
+             "$WANDB_PROJECT or workshop defaults). Default off so existing "
+             "callers (validate.py --full, notebook cells) are unaffected.",
+    )
     args = ap.parse_args()
 
     if CACHE_PATH.exists() and not args.force:
@@ -155,19 +162,124 @@ def main() -> int:
         return 1
 
     vid, gene, lbl = zip(*rows)
+    vid_arr = np.array(vid)
+    gene_arr = np.array(gene)
+    lbl_arr = np.array(lbl)
+    dn_arr = np.array(dn)
+    llr_arr = np.array(llr_vals)
+    slen_arr = np.array(slen)
+
     CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
     np.savez(
         CACHE_PATH,
-        variant_id=np.array(vid),
-        gene=np.array(gene),
-        label=np.array(lbl),
-        delta_norm=np.array(dn),
-        llr=np.array(llr_vals),
-        seq_len=np.array(slen),
+        variant_id=vid_arr,
+        gene=gene_arr,
+        label=lbl_arr,
+        delta_norm=dn_arr,
+        llr=llr_arr,
+        seq_len=slen_arr,
     )
     size_kb = CACHE_PATH.stat().st_size / 1024
     print(f"[OK] wrote {CACHE_PATH} ({size_kb:.1f} KB, {len(rows)} variants)")
+
+    if args.log_wandb:
+        log_to_wandb(
+            device=args.device,
+            n_total=n,
+            n_scored=len(rows),
+            n_skipped=skipped,
+            elapsed_s=elapsed,
+            max_len=encoder.MAX_LEN,
+            cache_path=CACHE_PATH,
+            variant_id=vid_arr,
+            gene=gene_arr,
+            label=lbl_arr,
+            delta_norm=dn_arr,
+            llr=llr_arr,
+            seq_len=slen_arr,
+        )
+
     return 0
+
+
+def log_to_wandb(
+    *,
+    device: str,
+    n_total: int,
+    n_scored: int,
+    n_skipped: int,
+    elapsed_s: float,
+    max_len: int,
+    cache_path: Path,
+    variant_id: np.ndarray,
+    gene: np.ndarray,
+    label: np.ndarray,
+    delta_norm: np.ndarray,
+    llr: np.ndarray,
+    seq_len: np.ndarray,
+) -> None:
+    """Log the sweep to wandb. Project convention mirrors 00_demo_umap.py."""
+    import os
+
+    import wandb
+    from sklearn.metrics import roc_auc_score
+
+    entity = os.environ.get("WANDB_ENTITY", "cesar-valdez-mcgill-university")
+    project = os.environ.get("WANDB_PROJECT", "upper-bound-2026")
+    rate = n_scored / elapsed_s if elapsed_s > 0 else 0.0
+
+    # Brandes: predict pathogenic with -llr (more negative ⇒ pathogenic);
+    # delta_norm: predict pathogenic with +delta_norm (higher ⇒ pathogenic).
+    valid = ~np.isnan(llr) & ~np.isnan(delta_norm)
+    y = label[valid]
+    auroc_llr = float(roc_auc_score(y, -llr[valid])) if len(np.unique(y)) > 1 else float("nan")
+    auroc_dn = float(roc_auc_score(y, delta_norm[valid])) if len(np.unique(y)) > 1 else float("nan")
+
+    run = wandb.init(
+        entity=entity,
+        project=project,
+        name=f"s3_sweep_workshop_set_n{n_scored}_{device}",
+        job_type="sweep",
+        tags=["workshop", "vep", "esm1b", "sweep", "workshop_set", "s3"],
+        config={
+            "device": device,
+            "n_variants_total": n_total,
+            "n_variants_scored": n_scored,
+            "n_skipped": n_skipped,
+            "model": "esm1b_t33_650M_UR50S",
+            "scorers": ["llr", "delta_norm"],
+            "max_length_residues": max_len,
+            "tsv_path": str(TSV_PATH.relative_to(REPO_ROOT)),
+            "cache_path": str(cache_path.relative_to(REPO_ROOT)),
+        },
+    )
+
+    import pandas as pd
+    df = pd.DataFrame({
+        "variant_id": variant_id,
+        "gene": gene,
+        "label": label.astype(int),
+        "llr": llr,
+        "delta_norm": delta_norm,
+        "seq_len": seq_len,
+    })
+    run.log({"scores": wandb.Table(dataframe=df)})
+
+    run.summary["auroc_llr"] = auroc_llr
+    run.summary["auroc_delta_norm"] = auroc_dn
+    run.summary["pathogenic_count"] = int((label == 1).sum())
+    run.summary["benign_count"] = int((label == 0).sum())
+    run.summary["elapsed_s"] = elapsed_s
+    run.summary["rate_var_per_s"] = rate
+    run.summary["seq_len_mean"] = float(seq_len.mean())
+    run.summary["seq_len_median"] = float(np.median(seq_len))
+    run.summary["n_skipped"] = n_skipped
+
+    print(
+        f"[OK] wandb run: {run.url}  "
+        f"(AUROC llr={auroc_llr:.4f}  delta_norm={auroc_dn:.4f})"
+    )
+    run.finish()
 
 
 if __name__ == "__main__":
