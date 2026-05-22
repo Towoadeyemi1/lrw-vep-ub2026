@@ -488,32 +488,184 @@ def cmd_check(allow_fetch: bool) -> int:
 REAL_PAPER_TEX = REPO_ROOT / "paper" / "main.tex"
 
 
-def cmd_real_paper(allow_fetch: bool) -> int:
-    """Build the real paper/main.tex (not the smoke-test paper).
+def _collect_cite_keys(tex_src: str) -> set[str]:
+    """Cite-keys from \\cite/\\citep/\\citet/\\citealp/etc."""
+    return {
+        k.strip()
+        for m in re.finditer(r"\\cite[a-z]*\*?\{([^}]+)\}", tex_src)
+        for k in m.group(1).split(",")
+    }
 
-    Structural compile only — no content assertions. Catches breakage when
-    an Overleaf coauthor lands a bad \\cite, a missing figure path, etc.
-    Placeholder `% TODO(agent)` sections are expected.
+
+def _resolve_bib_path(tex_path: Path) -> Path | None:
+    """Resolve \\bibliography{...} relative to the tex file's directory."""
+    m = re.search(r"\\bibliography\{([^}]+)\}", tex_path.read_text())
+    if not m:
+        return None
+    arg = m.group(1).strip()
+    for candidate in (arg, f"{arg}.bib"):
+        p = (tex_path.parent / candidate).resolve()
+        if p.exists():
+            return p
+    return None
+
+
+def _entries_in_bib(bib_path: Path) -> dict[str, str]:
+    """{cite_key: entry_body} — body is brace-counted contents of @kind{key, ...}."""
+    src = bib_path.read_text()
+    entries: dict[str, str] = {}
+    for em in re.finditer(r"@\w+\s*\{\s*([^,\s]+)\s*,", src):
+        start = em.end()
+        depth = 1
+        i = start
+        while i < len(src) and depth > 0:
+            if src[i] == "{":
+                depth += 1
+            elif src[i] == "}":
+                depth -= 1
+            i += 1
+        entries[em.group(1)] = src[start:i - 1]
+    return entries
+
+
+def _resolve_graphicspath(tex_path: Path) -> list[Path]:
+    """Parse \\graphicspath{{a}{b}}; default search path is the tex's own directory."""
+    paths = [tex_path.parent]
+    m = re.search(
+        r"\\graphicspath\s*\{((?:\s*\{[^}]+\}\s*)+)\}",
+        tex_path.read_text(),
+    )
+    if m:
+        for sm in re.finditer(r"\{([^}]+)\}", m.group(1)):
+            paths.append((tex_path.parent / sm.group(1)).resolve())
+    return paths
+
+
+def _resolve_figure(stem: str, search_paths: list[Path]) -> Path | None:
+    candidates = [stem]
+    if "." not in Path(stem).name:
+        candidates.extend(f"{stem}.{ext}" for ext in ("pdf", "png", "jpg", "jpeg"))
+    for d in search_paths:
+        for c in candidates:
+            p = d / c
+            if p.exists():
+                return p
+    return None
+
+
+def _check_real_paper_bib(res: CheckResult, tex: Path) -> None:
+    _section("Stage 1: cite-keys resolve + DOI field present on each")
+    bib = _resolve_bib_path(tex)
+    if bib is None:
+        res.failed("could not resolve \\bibliography{...} target from tex")
+        return
+    res.passed(f"bib resolved: {bib.relative_to(REPO_ROOT)}")
+    cited = _collect_cite_keys(tex.read_text())
+    if not cited:
+        res.failed("no \\cite commands found in tex")
+        return
+    entries = _entries_in_bib(bib)
+    missing = cited - set(entries.keys())
+    if missing:
+        res.failed(f"cite-keys not defined in bib: {sorted(missing)}")
+        return
+    res.passed(f"all {len(cited)} cite-keys resolve to bib entries")
+    no_doi = sorted(
+        k for k in cited
+        if not re.search(r"\bdoi\s*=", entries[k], re.IGNORECASE)
+    )
+    if no_doi:
+        res.failed(f"cited entries missing doi field: {no_doi}")
+    else:
+        res.passed("every cited entry carries a doi field")
+
+
+def _check_real_paper_figures(res: CheckResult, tex: Path) -> None:
+    _section("Stage 2: \\includegraphics paths resolve on graphicspath")
+    figs = [
+        m.group(1).strip()
+        for m in re.finditer(
+            r"\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}", tex.read_text()
+        )
+    ]
+    if not figs:
+        res.warned("no \\includegraphics commands in tex")
+        return
+    search_paths = _resolve_graphicspath(tex)
+    unresolved = [s for s in figs if _resolve_figure(s, search_paths) is None]
+    if unresolved:
+        res.failed(
+            f"figure(s) not found on graphicspath: {unresolved} "
+            f"(searched: {[str(p) for p in search_paths]})"
+        )
+    else:
+        res.passed(f"all {len(figs)} figure reference(s) resolve")
+
+
+def _check_real_paper_headline(res: CheckResult, tex: Path) -> None:
+    _section("Stage 3: headline AUROC from manifest is present in the paper")
+    auroc, _, _ = _load_auroc()
+    # 3 or 4 decimals only — 0.93 (2 decimals) would let 0.929 sneak past,
+    # which is exactly the sign-convention scar the validator must catch.
+    candidates = [f"{auroc:.4f}", f"{auroc:.3f}"]
+    if any(c in tex.read_text() for c in candidates):
+        res.passed(f"AUROC mention found (matched one of {candidates})")
+    else:
+        res.failed(
+            f"manifest AUROC ({auroc:.4f}) not present in paper; "
+            f"expected one of {candidates}"
+        )
+
+
+def cmd_real_paper(allow_fetch: bool) -> int:
+    """Build + content-validate the real paper/main.tex.
+
+    Checks: every cite-key resolves to a bib entry that carries a doi field;
+    every \\includegraphics resolves on the graphicspath; the manifest's
+    headline AUROC is present in the prose; and the PDF compiles.
+    Placeholder `% TODO(agent)` sections are expected and ignored.
     """
-    _section("Real paper build: paper/main.tex")
+    _section("Real paper: paper/main.tex")
     if not REAL_PAPER_TEX.exists():
         print(f"  FAIL  missing: {REAL_PAPER_TEX}")
         return 1
+    res = CheckResult()
+    _check_real_paper_bib(res, REAL_PAPER_TEX)
+    _check_real_paper_figures(res, REAL_PAPER_TEX)
+    _check_real_paper_headline(res, REAL_PAPER_TEX)
+
+    _section("Stage 4: PDF build")
     tectonic, reason = _ensure_tectonic(allow_fetch=allow_fetch)
     if tectonic is None:
-        print(f"  FAIL  tectonic unavailable: {reason}")
+        res.failed(f"tectonic unavailable: {reason}")
+    else:
+        print(f"  building with {tectonic}")
+        ok, msg = _build_pdf(tectonic, REAL_PAPER_TEX.parent)
+        if not ok:
+            res.failed(f"build failed: {msg}")
+        else:
+            pdf = REAL_PAPER_TEX.parent / "main.pdf"
+            if not pdf.exists():
+                res.failed(f"build returned 0 but no main.pdf at {pdf}")
+            else:
+                pages = _pdf_page_count(pdf)
+                res.passed(
+                    f"built paper/main.pdf "
+                    f"({pdf.stat().st_size} bytes, {pages or '?'} pages)"
+                )
+
+    _section("Summary")
+    print(f"  {len(res.passes)} PASS, {len(res.fails)} FAIL, {len(res.warns)} WARN")
+    if res.fails:
+        print("\nFails:")
+        for f in res.fails:
+            print(f"  - {f}")
         return 1
-    print(f"  building with {tectonic}")
-    ok, msg = _build_pdf(tectonic, REAL_PAPER_TEX.parent)
-    if not ok:
-        print(f"  FAIL  {msg}")
-        return 1
-    pdf = REAL_PAPER_TEX.parent / "main.pdf"
-    if not pdf.exists():
-        print(f"  FAIL  build returned 0 but no main.pdf at {pdf}")
-        return 1
-    pages = _pdf_page_count(pdf)
-    print(f"  PASS  paper/main.pdf built ({pdf.stat().st_size} bytes, {pages or '?'} pages)")
+    print("\nAll checks passed.")
+    if res.warns:
+        print("Warnings (non-blocking):")
+        for w in res.warns:
+            print(f"  - {w}")
     return 0
 
 
