@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertTriangle, CheckCircle, Trash2, Play, RefreshCw, LayoutDashboard } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Trash2, Play, RefreshCw, LayoutDashboard, Layers } from 'lucide-react';
 import { useToast } from '../components/Common/Toast';
 import client from '../api/client';
 
@@ -266,6 +266,123 @@ function DemoSequenceOverlay({ onClose }) {
   );
 }
 
+function BatchGeneratePanel({ samples }) {
+  const [rounds, setRounds] = useState(2);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0, current: '' });
+  const [finished, setFinished] = useState(false);
+  const { addToast } = useToast();
+
+  const handleGenerate = async () => {
+    const ids = DEMO_SEQUENCE;
+    const total = rounds * ids.length;
+    setRunning(true);
+    setFinished(false);
+    setProgress({ done: 0, total, current: '' });
+
+    let done = 0;
+    for (let r = 0; r < rounds; r++) {
+      for (const id of ids) {
+        const sample = samples.find((s) => s.id === id);
+        setProgress({ done, total, current: sample?.name || id });
+        try {
+          await client.post(`/invoices/sample/${id}`);
+        } catch {
+          // continue even if one fails
+        }
+        done++;
+        setProgress({ done, total, current: sample?.name || id });
+        await new Promise((res) => setTimeout(res, 400));
+      }
+    }
+
+    setRunning(false);
+    setFinished(true);
+    addToast(`Generated ${total} invoices across ${rounds} rounds`, 'success');
+  };
+
+  const pct = progress.total > 0 ? (progress.done / progress.total) * 100 : 0;
+
+  return (
+    <div className="bg-navy border border-cobalt rounded-2xl p-6">
+      <div className="flex items-center gap-3 mb-4">
+        <Layers className="w-5 h-5 text-gold" />
+        <h2 className="text-ivory font-bold text-lg">Generate Test Volume</h2>
+      </div>
+      <p className="text-silver text-sm mb-5 leading-relaxed">
+        Run all 6 sample invoices multiple times to build up realistic data volume and trigger the full
+        learning lifecycle — vendors progress from NEW → LEARNING → AUTO-ROUTE as confirmations accumulate.
+      </p>
+
+      <div className="flex items-center gap-4 mb-5">
+        <div>
+          <label className="block text-xs text-silver uppercase tracking-wide mb-2">Rounds</label>
+          <div className="flex gap-2">
+            {[1, 2, 3, 5].map((n) => (
+              <button
+                key={n}
+                onClick={() => setRounds(n)}
+                disabled={running}
+                className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors border ${
+                  rounds === n
+                    ? 'bg-gold text-midnight border-gold'
+                    : 'border-cobalt text-silver hover:text-ivory hover:border-gold/50'
+                }`}
+              >
+                {n}×
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="text-sm text-silver mt-5">
+          = <span className="text-ivory font-semibold">{rounds * 6}</span> invoices total
+        </div>
+      </div>
+
+      {running && (
+        <div className="mb-4">
+          <div className="flex justify-between text-xs text-silver mb-1.5">
+            <span className="text-gold truncate">{progress.current}</span>
+            <span>{progress.done}/{progress.total}</span>
+          </div>
+          <div className="h-2 bg-cobalt rounded-full overflow-hidden">
+            <motion.div
+              className="h-full bg-gold rounded-full"
+              animate={{ width: `${pct}%` }}
+              transition={{ duration: 0.3 }}
+            />
+          </div>
+        </div>
+      )}
+
+      {finished && !running && (
+        <div className="mb-4 flex items-center gap-2 bg-success-bg border border-green-600 rounded-lg px-4 py-3 text-green-300 text-sm">
+          <CheckCircle className="w-4 h-4 shrink-0" />
+          Done — {rounds * 6} invoices generated. Check Review Queue and Dashboard.
+        </div>
+      )}
+
+      <button
+        onClick={handleGenerate}
+        disabled={running}
+        className="flex items-center gap-2 bg-cobalt hover:bg-slate disabled:opacity-50 disabled:cursor-not-allowed text-ivory font-bold px-6 py-3 rounded-xl transition-colors border border-cobalt/80"
+      >
+        {running ? (
+          <>
+            <div className="w-4 h-4 border-2 border-gold border-t-transparent rounded-full animate-spin" />
+            Generating...
+          </>
+        ) : (
+          <>
+            <Layers className="w-4 h-4 text-gold" />
+            Generate {rounds * 6} Invoices
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
+
 export default function DemoControls() {
   const [showDialog, setShowDialog] = useState(false);
   const [showDemo, setShowDemo] = useState(false);
@@ -328,6 +445,9 @@ export default function DemoControls() {
           </button>
         </div>
       </div>
+
+      {/* Generate Test Volume */}
+      <BatchGeneratePanel samples={samples} />
 
       {/* Danger Zone */}
       <div className="border-2 border-red-700 rounded-xl overflow-hidden">
