@@ -1,54 +1,165 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Zap } from 'lucide-react';
-import { UploadZone } from '../components/Invoice/UploadZone';
+import { Zap, ChevronDown } from 'lucide-react';
+import { useDropzone } from 'react-dropzone';
 import { ProcessingAnimation } from '../components/Invoice/ProcessingAnimation';
 import { ResultCard } from '../components/Invoice/ResultCard';
+import { InvoicePreview } from '../components/Invoice/InvoicePreview';
 import { useToast } from '../components/Common/Toast';
 import client from '../api/client';
 
 const TABS = ['Upload File', 'Paste Text', 'Sample Invoice'];
+const ACCEPTED = { 'application/pdf': [], 'image/*': [], 'text/plain': [], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': [] };
 
 function buildSteps(result) {
   return [
-    { id: 'upload', label: 'Uploading invoice...', done: true, active: false },
-    { id: 'received', label: 'Invoice received', done: true, active: false },
-    { id: 'extract', label: 'Extracting data with Claude AI...', done: !!result, active: !result },
+    { id: 'upload',     label: 'Uploading invoice...',             done: true,    active: false },
+    { id: 'received',   label: 'Invoice received',                 done: true,    active: false },
+    { id: 'extract',    label: 'Extracting data with Claude AI...', done: !!result, active: !result },
     {
       id: 'vendor',
       label: result ? `Vendor identified: ${result.vendor_canonical || result.vendor_name || '...'}` : 'Identifying vendor...',
-      done: !!result,
-      active: false,
+      done: !!result, active: false,
       badge: result ? (result.is_new_vendor ? 'NEW' : 'KNOWN') : undefined,
     },
     {
       id: 'classify',
-      label: result ? `Classification complete — Tier ${result.tier_used || result.tier || '?'} used` : 'Running three-tier classification...',
-      done: !!result,
-      active: false,
+      label: result ? `Classification complete — ${result.tier_used || result.tier || 'Tier ?'} used` : 'Running three-tier classification...',
+      done: !!result, active: false,
     },
     {
       id: 'confidence',
-      label: result ? `Confidence: ${result.confidence_score || 0}%` : 'Calculating confidence...',
-      done: !!result,
-      active: false,
-      badge: result
-        ? result.confidence_score >= 90 ? 'HIGH' : result.confidence_score >= 70 ? 'GOOD' : 'LOW'
-        : undefined,
+      label: result ? `Confidence: ${result.confidence_score ?? 0}%` : 'Calculating confidence...',
+      done: !!result, active: false,
+      badge: result ? (result.confidence_score >= 90 ? 'HIGH' : result.confidence_score >= 70 ? 'GOOD' : 'LOW') : undefined,
     },
     {
       id: 'decision',
-      label: result ? `Decision: ${(result.routing_decision || '').replace(/_/g, ' ')}` : 'Making routing decision...',
-      done: !!result,
-      active: false,
+      label: result ? `Decision: ${(result.routing_decision || result.routing_status || '').replace(/_/g, ' ')}` : 'Making routing decision...',
+      done: !!result, active: false,
     },
   ];
 }
 
+// ── Upload drop zone ──────────────────────────────────────────────────────────
+function FileDropZone({ file, fileUrl, onFile }) {
+  const onDrop = useCallback((accepted) => {
+    if (accepted[0]) onFile(accepted[0]);
+  }, [onFile]);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: ACCEPTED,
+    maxSize: 10 * 1024 * 1024,
+    multiple: false,
+  });
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div
+        {...getRootProps()}
+        className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all
+          ${isDragActive ? 'border-gold bg-gold/5' : 'border-cobalt hover:border-gold/50 hover:bg-cobalt/10'}`}
+      >
+        <input {...getInputProps()} />
+        <div className="text-3xl mb-2">📄</div>
+        {isDragActive ? (
+          <p className="text-gold font-medium">Drop the invoice here...</p>
+        ) : (
+          <>
+            <p className="text-ivory font-medium">Drag & drop an invoice here</p>
+            <p className="text-silver text-sm mt-1">or <span className="text-gold underline">click to browse</span></p>
+            <p className="text-steel text-xs mt-3">PDF · PNG · JPG · DOCX · TXT — max 10 MB</p>
+          </>
+        )}
+      </div>
+
+      {file && (
+        <InvoicePreview
+          file={file}
+          fileUrl={fileUrl}
+          label={`Preview — ${file.name}`}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Paste text tab ────────────────────────────────────────────────────────────
+function PasteTextTab({ text, onText }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <textarea
+        value={text}
+        onChange={(e) => onText(e.target.value)}
+        placeholder={`Paste invoice text here...\n\nExample:\nSYSCO FOOD SERVICES\nInvoice #: INV-2026-4471\nDate: June 20, 2026\nBill To: Coastal Grand Hotel\n247 Harbour Rd\nTOTAL DUE: $6,300.00`}
+        className="w-full h-44 bg-midnight border border-cobalt rounded-xl p-4 text-ivory text-sm font-mono placeholder-steel resize-none focus:outline-none focus:border-gold/50 transition-colors"
+      />
+      {text.trim() && (
+        <InvoicePreview content={text} label="Live Preview" />
+      )}
+    </div>
+  );
+}
+
+// ── Sample invoice tab ────────────────────────────────────────────────────────
+function SampleTab({ samples, sampleId, onSelect }) {
+  const selected = samples.find((s) => String(s.id) === String(sampleId));
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <label className="block text-xs text-silver font-medium mb-2 uppercase tracking-wide">
+          Choose a sample invoice
+        </label>
+        <div className="relative">
+          <select
+            value={sampleId}
+            onChange={(e) => onSelect(e.target.value)}
+            className="w-full appearance-none bg-midnight border border-cobalt rounded-xl px-4 py-3 pr-10 text-ivory text-sm focus:outline-none focus:border-gold/50 transition-colors"
+          >
+            <option value="">Select sample invoice...</option>
+            {samples.map((s) => (
+              <option key={s.id} value={s.id}>{s.name || s.id}</option>
+            ))}
+          </select>
+          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-silver pointer-events-none" />
+        </div>
+      </div>
+
+      {selected && (
+        <>
+          {/* Info strip */}
+          <div className="flex gap-3">
+            <div className="flex-1 bg-cobalt/20 border border-cobalt/50 rounded-xl p-3">
+              <p className="text-silver text-xs uppercase tracking-wide font-medium mb-1">Description</p>
+              <p className="text-ivory text-sm">{selected.description}</p>
+            </div>
+            {selected.expected_behavior && (
+              <div className="flex-1 bg-gold/5 border border-gold/20 rounded-xl p-3">
+                <p className="text-gold/70 text-xs uppercase tracking-wide font-medium mb-1">Expected behaviour</p>
+                <p className="text-ivory/80 text-sm">{selected.expected_behavior}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Invoice document preview */}
+          <InvoicePreview
+            content={selected.content}
+            label={`Invoice Document — ${selected.name}`}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function ProcessInvoice() {
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState(0);
   const [file, setFile] = useState(null);
+  const [fileUrl, setFileUrl] = useState(null);
   const [text, setText] = useState('');
   const [sampleId, setSampleId] = useState('');
   const [samples, setSamples] = useState([]);
@@ -64,19 +175,23 @@ export default function ProcessInvoice() {
     }).catch(() => {});
   }, []);
 
-  // If navigated with ?sample=id, auto-switch to Sample tab
   useEffect(() => {
     const sid = searchParams.get('sample');
-    if (sid) {
-      setTab(2);
-      setSampleId(sid);
-    }
+    if (sid) { setTab(2); setSampleId(sid); }
   }, [searchParams]);
 
+  // Create object URL for file preview
+  useEffect(() => {
+    if (!file) { setFileUrl(null); return; }
+    const url = URL.createObjectURL(file);
+    setFileUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
   const handleProcess = async () => {
-    if (tab === 0 && !file) { addToast('Please select a file first', 'warning'); return; }
-    if (tab === 1 && !text.trim()) { addToast('Please paste some invoice text', 'warning'); return; }
-    if (tab === 2 && !sampleId) { addToast('Please select a sample invoice', 'warning'); return; }
+    if (tab === 0 && !file)         { addToast('Please select a file first', 'warning'); return; }
+    if (tab === 1 && !text.trim())  { addToast('Please paste some invoice text', 'warning'); return; }
+    if (tab === 2 && !sampleId)     { addToast('Please select a sample invoice', 'warning'); return; }
 
     setProcessing(true);
     setResult(null);
@@ -87,21 +202,20 @@ export default function ProcessInvoice() {
       if (tab === 0) {
         const formData = new FormData();
         formData.append('file', file);
-        res = await client.post('/process/upload', formData, {
+        res = await client.post('/invoices/upload', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
       } else if (tab === 1) {
-        res = await client.post('/process/text', { text });
+        res = await client.post('/invoices/process-text', { text });
       } else {
-        res = await client.post('/process/sample', { sample_id: sampleId });
+        res = await client.post(`/invoices/sample/${sampleId}`);
       }
 
-      const resultData = res.data;
-      setSteps(buildSteps(resultData));
-      setResult(resultData);
+      setSteps(buildSteps(res.data));
+      setResult(res.data);
       addToast('Invoice processed successfully!', 'success');
     } catch (err) {
-      addToast(err.displayMessage || 'Processing failed', 'error');
+      addToast(err.displayMessage || 'Processing failed — check server logs', 'error');
       setSteps([]);
     } finally {
       setProcessing(false);
@@ -109,17 +223,17 @@ export default function ProcessInvoice() {
   };
 
   const handleReset = () => {
-    setResult(null);
-    setSteps([]);
-    setFile(null);
-    setText('');
-    setSampleId('');
+    setResult(null); setSteps([]); setFile(null); setFileUrl(null);
+    setText(''); setSampleId('');
   };
 
-  const selectedSample = samples.find((s) => String(s.id) === String(sampleId));
+  const canProcess =
+    (tab === 0 && !!file) ||
+    (tab === 1 && text.trim().length > 0) ||
+    (tab === 2 && !!sampleId);
 
   return (
-    <div className="p-6 max-w-3xl mx-auto flex flex-col gap-6">
+    <div className="p-6 max-w-4xl mx-auto flex flex-col gap-6">
       {!processing && !result && (
         <div className="bg-navy rounded-xl border border-cobalt shadow-lg overflow-hidden">
           {/* Tabs */}
@@ -131,8 +245,7 @@ export default function ProcessInvoice() {
                 className={`flex-1 py-3 text-sm font-medium transition-colors
                   ${tab === i
                     ? 'text-gold border-b-2 border-gold bg-cobalt/20'
-                    : 'text-silver hover:text-ivory hover:bg-cobalt/10'
-                  }`}
+                    : 'text-silver hover:text-ivory hover:bg-cobalt/10'}`}
               >
                 {t}
               </button>
@@ -141,47 +254,13 @@ export default function ProcessInvoice() {
 
           <div className="p-6">
             {tab === 0 && (
-              <UploadZone file={file} onFile={setFile} />
+              <FileDropZone file={file} fileUrl={fileUrl} onFile={setFile} />
             )}
-
             {tab === 1 && (
-              <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="Paste invoice text here...&#10;&#10;Example:&#10;INVOICE #INV-2024-001&#10;Date: January 15, 2024&#10;From: Marriott Hotels Ltd&#10;Amount: $2,450.00"
-                className="w-full h-48 bg-midnight border border-cobalt rounded-xl p-4 text-ivory text-sm font-mono placeholder-steel resize-none focus:outline-none focus:border-gold/50 transition-colors"
-              />
+              <PasteTextTab text={text} onText={setText} />
             )}
-
             {tab === 2 && (
-              <div className="flex flex-col gap-4">
-                <div>
-                  <label className="block text-xs text-silver font-medium mb-2 uppercase tracking-wide">Select Sample Invoice</label>
-                  <select
-                    value={sampleId}
-                    onChange={(e) => setSampleId(e.target.value)}
-                    className="w-full bg-midnight border border-cobalt rounded-xl px-4 py-3 text-ivory text-sm focus:outline-none focus:border-gold/50 transition-colors"
-                  >
-                    <option value="">Choose a sample...</option>
-                    {samples.map((s) => (
-                      <option key={s.id} value={s.id}>{s.name || s.id}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {selectedSample && (
-                  <div className="bg-cobalt/20 border border-cobalt rounded-xl p-4">
-                    <p className="text-silver text-xs uppercase tracking-wide font-medium mb-1">Description</p>
-                    <p className="text-ivory text-sm">{selectedSample.description}</p>
-                    {selectedSample.expected_behavior && (
-                      <>
-                        <p className="text-silver text-xs uppercase tracking-wide font-medium mt-3 mb-1">Expected Behaviour</p>
-                        <p className="text-ivory/80 text-sm">{selectedSample.expected_behavior}</p>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
+              <SampleTab samples={samples} sampleId={sampleId} onSelect={setSampleId} />
             )}
           </div>
         </div>
@@ -190,11 +269,7 @@ export default function ProcessInvoice() {
       {!processing && !result && (
         <button
           onClick={handleProcess}
-          disabled={
-            (tab === 0 && !file) ||
-            (tab === 1 && !text.trim()) ||
-            (tab === 2 && !sampleId)
-          }
+          disabled={!canProcess}
           className="w-full flex items-center justify-center gap-3 bg-gold hover:bg-amber disabled:bg-cobalt disabled:text-steel text-midnight font-bold py-4 rounded-xl text-base transition-colors shadow-lg disabled:cursor-not-allowed"
         >
           <Zap className="w-5 h-5" />
@@ -204,9 +279,7 @@ export default function ProcessInvoice() {
 
       {processing && <ProcessingAnimation steps={steps} />}
 
-      {result && (
-        <ResultCard result={result} onReset={handleReset} />
-      )}
+      {result && <ResultCard result={result} onReset={handleReset} />}
     </div>
   );
 }
