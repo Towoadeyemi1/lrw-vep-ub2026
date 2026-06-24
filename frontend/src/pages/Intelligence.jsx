@@ -261,7 +261,7 @@ function VendorDrawer({ vendor, onClose }) {
           ) : hasPending ? (
             <>
               <button
-                onClick={() => { navigate('/review-queue'); onClose(); }}
+                onClick={() => { navigate('/review'); onClose(); }}
                 className="flex items-center gap-2 w-full justify-center bg-gold hover:bg-amber text-midnight text-sm font-bold py-2.5 rounded-xl transition-colors"
               >
                 <ClipboardCheck className="w-4 h-4" />
