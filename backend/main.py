@@ -346,8 +346,8 @@ def _decision_to_dict(d: RoutingDecision) -> dict:
     }
 
 
-def _review_to_dict(r: ReviewQueue) -> dict:
-    return {
+def _review_to_dict(r: ReviewQueue, d: Optional[RoutingDecision] = None) -> dict:
+    base = {
         "id": r.id,
         "routing_decision_id": r.routing_decision_id,
         "top_candidates": _safe_json(r.top_candidates),
@@ -361,6 +361,20 @@ def _review_to_dict(r: ReviewQueue) -> dict:
         "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None,
         "resolved_by": r.resolved_by,
     }
+    if d:
+        base.update({
+            "llm_reasoning": d.llm_reasoning,
+            "signals_matched": _safe_json(d.signals_matched),
+            "line_items": _safe_json(d.line_items),
+            "invoice_number": d.invoice_number,
+            "invoice_date": d.invoice_date,
+            "po_number": d.po_number,
+            "entity_name": d.entity_name,
+            "entity_vertical": d.entity_vertical,
+            "tier_used": d.tier_used,
+            "confidence_score": d.confidence_score,
+        })
+    return base
 
 
 def _safe_json(raw: Optional[str]) -> Any:
@@ -751,16 +765,21 @@ async def get_review_queue(
     _auth: bool = Depends(auth.require_auth),
     db: Session = Depends(get_db),
 ):
-    """Get review queue items (default: pending only)."""
-    query = db.query(ReviewQueue).order_by(ReviewQueue.created_at.desc())
+    """Get review queue items with full routing decision detail (default: pending only)."""
+    from sqlalchemy.orm import outerjoin
+    query = (
+        db.query(ReviewQueue, RoutingDecision)
+        .outerjoin(RoutingDecision, ReviewQueue.routing_decision_id == RoutingDecision.id)
+        .order_by(ReviewQueue.created_at.desc())
+    )
 
     if status_filter:
         query = query.filter(ReviewQueue.status == status_filter)
     else:
         query = query.filter(ReviewQueue.status == "pending")
 
-    reviews = query.all()
-    return [_review_to_dict(r) for r in reviews]
+    results = query.all()
+    return [_review_to_dict(r, d) for r, d in results]
 
 
 @app.get("/api/review-queue/count")

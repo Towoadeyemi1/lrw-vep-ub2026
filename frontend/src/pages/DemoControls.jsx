@@ -87,72 +87,57 @@ function ResetDialog({ onConfirm, onCancel, loading }) {
 
 function DemoSequenceOverlay({ onClose }) {
   const navigate = useNavigate();
-  const [steps, setSteps] = useState(
-    DEMO_SEQUENCE.map((id) => ({ id, state: 'pending', label: id, result: null }))
-  );
-  const [current, setCurrent] = useState(-1);
-  const [done, setDone] = useState(false);
-  const [running, setRunning] = useState(false);
+  const [phase, setPhase] = useState('configure'); // 'configure' | 'running' | 'done'
+  const [rounds, setRounds] = useState(1);
+  const [steps, setSteps] = useState([]);
+  const [processedTotal, setProcessedTotal] = useState(0);
+  const [currentRound, setCurrentRound] = useState(1);
+  const [currentStep, setCurrentStep] = useState(null);
+  const [lastResults, setLastResults] = useState([]);
 
-  useEffect(() => {
-    let cancelled = false;
+  const totalInvoices = rounds * DEMO_SEQUENCE.length;
 
-    async function run() {
-      setRunning(true);
+  const handleStart = async () => {
+    setPhase('running');
+    setProcessedTotal(0);
+    setLastResults([]);
+    let done = 0;
+
+    for (let r = 0; r < rounds; r++) {
+      setCurrentRound(r + 1);
+      const roundResults = [];
+
       for (let i = 0; i < DEMO_SEQUENCE.length; i++) {
-        if (cancelled) break;
         const id = DEMO_SEQUENCE[i];
-        setCurrent(i);
-
-        setSteps((prev) =>
-          prev.map((s, idx) => (idx === i ? { ...s, state: 'processing' } : s))
-        );
+        setCurrentStep(id);
 
         try {
           const res = await client.post(`/invoices/sample/${id}`);
           const d = res.data || {};
-          const entityName = d.entity_name || d.entity || '—';
-          const confidence = d.confidence_score || d.confidence || 0;
-          const tier = d.tier_used || d.tier || '?';
-          const label = d.vendor_name || d.vendor || id;
-
-          setSteps((prev) =>
-            prev.map((s, idx) =>
-              idx === i
-                ? {
-                    ...s,
-                    state: 'done',
-                    label,
-                    result: { entityName, confidence, tier },
-                  }
-                : s
-            )
-          );
-        } catch (err) {
-          setSteps((prev) =>
-            prev.map((s, idx) =>
-              idx === i ? { ...s, state: 'error', result: { entityName: 'Error', confidence: 0, tier: '?' } } : s
-            )
-          );
+          roundResults.push({
+            id,
+            label: d.vendor_name || d.vendor || id,
+            entityName: d.entity_name || d.entity || '—',
+            confidence: d.confidence_score || d.confidence || 0,
+            tier: d.tier_used || d.tier || '?',
+            ok: true,
+          });
+        } catch {
+          roundResults.push({ id, label: id, ok: false });
         }
 
-        if (i < DEMO_SEQUENCE.length - 1) {
-          await new Promise((r) => setTimeout(r, 1500));
+        done++;
+        setProcessedTotal(done);
+        if (!(r === rounds - 1 && i === DEMO_SEQUENCE.length - 1)) {
+          await new Promise((res) => setTimeout(res, 800));
         }
       }
-
-      if (!cancelled) {
-        setDone(true);
-        setRunning(false);
-        setCurrent(DEMO_SEQUENCE.length);
-      }
+      setLastResults(roundResults);
     }
 
-    run();
-    return () => { cancelled = true; };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const progress = Math.max(0, Math.min(DEMO_SEQUENCE.length, current + (done ? 1 : 0)));
+    setCurrentStep(null);
+    setPhase('done');
+  };
 
   return (
     <motion.div
@@ -167,100 +152,163 @@ function DemoSequenceOverlay({ onClose }) {
         exit={{ scale: 0.92, opacity: 0, y: 20 }}
         className="bg-navy border border-cobalt rounded-2xl shadow-2xl p-8 max-w-lg w-full"
       >
-        <h2 className="text-ivory font-bold text-xl mb-1">Running Full Demo Sequence</h2>
-        <p className="text-silver text-sm mb-6">Processing 6 sample invoices to demonstrate the learning lifecycle...</p>
+        {/* ── Configure ── */}
+        {phase === 'configure' && (
+          <>
+            <h2 className="text-ivory font-bold text-xl mb-1">Full Demo Sequence</h2>
+            <p className="text-silver text-sm mb-6 leading-relaxed">
+              Run all {DEMO_SEQUENCE.length} sample invoices and watch the 3-tier pipeline classify each one in real time.
+              Run multiple rounds to trigger the vendor learning lifecycle.
+            </p>
 
-        {/* Progress bar */}
-        <div className="mb-6">
-          <div className="flex justify-between text-xs text-silver mb-2">
-            <span>Progress</span>
-            <span>{Math.min(progress, DEMO_SEQUENCE.length)}/{DEMO_SEQUENCE.length}</span>
-          </div>
-          <div className="h-2 bg-cobalt rounded-full overflow-hidden">
-            <motion.div
-              className="h-full bg-gold rounded-full"
-              animate={{ width: `${(Math.min(progress, DEMO_SEQUENCE.length) / DEMO_SEQUENCE.length) * 100}%` }}
-              transition={{ duration: 0.4, ease: 'easeOut' }}
-            />
-          </div>
-        </div>
+            <div className="mb-6">
+              <label className="block text-xs text-silver uppercase tracking-wide font-medium mb-3">How many rounds?</label>
+              <div className="flex gap-2 flex-wrap">
+                {[1, 2, 3, 5].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => setRounds(n)}
+                    className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-colors border ${
+                      rounds === n
+                        ? 'bg-gold text-midnight border-gold'
+                        : 'border-cobalt text-silver hover:text-ivory hover:border-gold/50'
+                    }`}
+                  >
+                    {n}×
+                  </button>
+                ))}
+              </div>
+              <p className="text-steel text-xs mt-2">
+                = <span className="text-ivory font-semibold">{totalInvoices} invoices</span> total
+                {rounds >= 3 && <span className="text-gold"> — enough to trigger auto-routing</span>}
+              </p>
+            </div>
 
-        {/* Step list */}
-        <div className="flex flex-col gap-3 mb-6">
-          <AnimatePresence>
-            {steps.map((step, i) => (
-              <motion.div
-                key={step.id}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className="flex items-center gap-3 text-sm"
+            <div className="flex gap-3">
+              <button
+                onClick={handleStart}
+                className="flex-1 flex items-center justify-center gap-2 bg-gold hover:bg-amber text-midnight font-bold py-3 rounded-xl transition-colors"
               >
-                <div className="w-6 shrink-0 flex items-center justify-center">
-                  {step.state === 'done' && <CheckCircle className="w-4 h-4 text-green-400" />}
-                  {step.state === 'processing' && (
-                    <div className="w-4 h-4 border-2 border-gold border-t-transparent rounded-full animate-spin" />
-                  )}
-                  {step.state === 'pending' && (
-                    <div className="w-4 h-4 rounded-full border-2 border-cobalt" />
-                  )}
-                  {step.state === 'error' && <span className="text-red-400 text-xs">✕</span>}
-                </div>
+                <Play className="w-4 h-4" />
+                Start Demo
+              </button>
+              <button
+                onClick={onClose}
+                className="border border-cobalt text-silver hover:text-ivory px-5 py-3 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </>
+        )}
 
-                <div className="flex-1 min-w-0">
-                  {step.state === 'processing' && (
-                    <span className="text-gold">⟳ Processing: {step.label}...</span>
-                  )}
-                  {step.state === 'done' && step.result && (
-                    <span className="text-green-300">
-                      ✓ {step.label} → <span className="text-ivory">{step.result.entityName}</span>{' '}
-                      <span className="text-silver">({step.result.confidence}%) [T{step.result.tier}]</span>
-                    </span>
-                  )}
-                  {step.state === 'error' && (
-                    <span className="text-red-400">✕ {step.label} — failed</span>
-                  )}
-                  {step.state === 'pending' && (
-                    <span className="text-steel">{step.label}</span>
-                  )}
-                </div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
+        {/* ── Running ── */}
+        {phase === 'running' && (
+          <>
+            <h2 className="text-ivory font-bold text-xl mb-1">Running Demo Sequence</h2>
+            <p className="text-silver text-sm mb-5">
+              Round {currentRound} of {rounds} — {currentStep || '…'}
+            </p>
 
-        {/* Completion */}
-        <AnimatePresence>
-          {done && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="border-t border-cobalt pt-5 flex flex-col gap-4"
-            >
-              <div className="flex items-start gap-3 bg-success-bg border border-green-600 rounded-xl p-4">
-                <CheckCircle className="w-5 h-5 text-green-400 shrink-0 mt-0.5" />
-                <p className="text-green-300 text-sm font-medium">
-                  ✓ Demo complete! 6 invoices processed. Visit the Dashboard to see results.
-                </p>
+            {/* Overall progress bar */}
+            <div className="mb-5">
+              <div className="flex justify-between text-xs text-silver mb-2">
+                <span>Overall progress</span>
+                <span>{processedTotal} / {totalInvoices}</span>
               </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => navigate('/')}
-                  className="flex items-center gap-2 bg-gold hover:bg-amber text-midnight font-bold px-5 py-2.5 rounded-xl transition-colors flex-1 justify-center"
-                >
-                  <LayoutDashboard className="w-4 h-4" />
-                  Go to Dashboard
-                </button>
-                <button
-                  onClick={onClose}
-                  className="border border-cobalt text-silver hover:text-ivory px-5 py-2.5 rounded-xl transition-colors"
-                >
-                  Close
-                </button>
+              <div className="h-2 bg-cobalt rounded-full overflow-hidden">
+                <motion.div
+                  className="h-full bg-gold rounded-full"
+                  animate={{ width: `${(processedTotal / totalInvoices) * 100}%` }}
+                  transition={{ duration: 0.4, ease: 'easeOut' }}
+                />
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            </div>
+
+            {/* Last round results */}
+            {lastResults.length > 0 && (
+              <div className="flex flex-col gap-2 max-h-52 overflow-y-auto mb-4">
+                {lastResults.map((r) => (
+                  <div key={r.id} className="flex items-center gap-3 text-sm">
+                    <div className="w-6 shrink-0 flex items-center justify-center">
+                      {r.ok
+                        ? <CheckCircle className="w-4 h-4 text-green-400" />
+                        : <span className="text-red-400 text-xs">✕</span>}
+                    </div>
+                    <div className="min-w-0">
+                      {r.ok
+                        ? <span className="text-green-300">
+                            ✓ {r.label} → <span className="text-ivory">{r.entityName}</span>{' '}
+                            <span className="text-silver">({r.confidence}%) [T{r.tier}]</span>
+                          </span>
+                        : <span className="text-red-400">✕ {r.label} — failed</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {currentStep && (
+              <div className="flex items-center gap-3 text-sm text-gold">
+                <div className="w-4 h-4 border-2 border-gold border-t-transparent rounded-full animate-spin shrink-0" />
+                Processing {currentStep}…
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Done ── */}
+        {phase === 'done' && (
+          <>
+            <h2 className="text-ivory font-bold text-xl mb-4">Demo Complete</h2>
+
+            {/* Last round results */}
+            <div className="flex flex-col gap-2 max-h-52 overflow-y-auto mb-5">
+              {lastResults.map((r) => (
+                <div key={r.id} className="flex items-center gap-3 text-sm">
+                  <div className="w-6 shrink-0 flex items-center justify-center">
+                    {r.ok
+                      ? <CheckCircle className="w-4 h-4 text-green-400" />
+                      : <span className="text-red-400 text-xs">✕</span>}
+                  </div>
+                  <div className="min-w-0">
+                    {r.ok
+                      ? <span className="text-green-300">
+                          ✓ {r.label} → <span className="text-ivory">{r.entityName}</span>{' '}
+                          <span className="text-silver">({r.confidence}%) [T{r.tier}]</span>
+                        </span>
+                      : <span className="text-red-400">✕ {r.label} — failed</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-start gap-3 bg-green-900/30 border border-green-700/60 rounded-xl p-4 mb-5">
+              <CheckCircle className="w-5 h-5 text-green-400 shrink-0 mt-0.5" />
+              <p className="text-green-300 text-sm font-medium">
+                ✓ {totalInvoices} invoices processed across {rounds} round{rounds > 1 ? 's' : ''}.
+                Visit the Dashboard to see results.
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => navigate('/')}
+                className="flex items-center gap-2 bg-gold hover:bg-amber text-midnight font-bold px-5 py-2.5 rounded-xl transition-colors flex-1 justify-center"
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                Go to Dashboard
+              </button>
+              <button
+                onClick={onClose}
+                className="border border-cobalt text-silver hover:text-ivory px-5 py-2.5 rounded-xl transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </>
+        )}
+
       </motion.div>
     </motion.div>
   );
@@ -356,7 +404,7 @@ function BatchGeneratePanel({ samples }) {
       )}
 
       {finished && !running && (
-        <div className="mb-4 flex items-center gap-2 bg-success-bg border border-green-600 rounded-lg px-4 py-3 text-green-300 text-sm">
+        <div className="mb-4 flex items-center gap-2 bg-green-900/30 border border-green-700/60 rounded-lg px-4 py-3 text-green-300 text-sm">
           <CheckCircle className="w-4 h-4 shrink-0" />
           Done — {rounds * 6} invoices generated. Check Review Queue and Dashboard.
         </div>
