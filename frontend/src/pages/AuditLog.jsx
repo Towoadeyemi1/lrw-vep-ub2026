@@ -33,6 +33,25 @@ function SourceBadge({ source }) {
   );
 }
 
+function tierLabel(tier) {
+  if (!tier) return '—';
+  const t = String(tier).toLowerCase();
+  if (t.includes('1')) return 'Vendor Match';
+  if (t.includes('2')) return 'Pattern Match';
+  if (t.includes('3')) return 'AI Analysis';
+  return tier;
+}
+
+function TierBadge({ tier }) {
+  const label = tierLabel(tier);
+  const cls = {
+    'Vendor Match':  'bg-green-900/40 text-green-300',
+    'Pattern Match': 'bg-blue-900/40 text-blue-300',
+    'AI Analysis':   'bg-purple-900/40 text-purple-300',
+  }[label] || 'bg-cobalt/40 text-silver';
+  return <span className={`text-xs font-medium px-2 py-0.5 rounded whitespace-nowrap ${cls}`}>{label}</span>;
+}
+
 function ConfidenceBadge({ score }) {
   let cls = 'bg-red-900/40 text-red-300';
   if (score >= 90) cls = 'bg-success/20 text-green-300';
@@ -41,19 +60,18 @@ function ConfidenceBadge({ score }) {
   return <span className={`text-xs font-semibold px-2 py-0.5 rounded ${cls}`}>{score}%</span>;
 }
 
+const STATUS_LABELS = {
+  auto_routed:     { label: 'Auto-Routed',     cls: 'bg-success/20 text-green-300' },
+  routed:          { label: 'Routed',           cls: 'bg-success/20 text-green-300' },
+  held_for_review: { label: 'Needs Review',     cls: 'bg-warning-bg text-warning' },
+  escalated:       { label: 'Escalated',        cls: 'bg-danger-bg text-danger' },
+  pending:         { label: 'Pending',          cls: 'bg-steel/30 text-silver' },
+};
+
 function StatusBadge({ status }) {
-  const cls = {
-    auto_routed: 'bg-success/20 text-green-300',
-    routed: 'bg-success/20 text-green-300',
-    held_for_review: 'bg-warning-bg text-warning',
-    escalated: 'bg-danger-bg text-danger',
-    pending: 'bg-steel/30 text-silver',
-  }[status?.toLowerCase()] || 'bg-steel/30 text-silver';
-  return (
-    <span className={`text-xs font-medium px-2 py-0.5 rounded capitalize ${cls}`}>
-      {(status || '').replace(/_/g, ' ')}
-    </span>
-  );
+  const key = status?.toLowerCase() || '';
+  const { label, cls } = STATUS_LABELS[key] || { label: (status || '').replace(/_/g, ' '), cls: 'bg-steel/30 text-silver' };
+  return <span className={`text-xs font-medium px-2 py-0.5 rounded ${cls}`}>{label}</span>;
 }
 
 function ExpandedRow({ invoice }) {
@@ -213,8 +231,10 @@ export default function AuditLog() {
             onChange={(e) => setFilters((f) => ({ ...f, tier: e.target.value }))}
             className="bg-navy border border-cobalt text-silver text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-gold/50"
           >
-            <option value="">All Tiers</option>
-            {['1','2','3'].map((t) => <option key={t} value={t}>Tier {t}</option>)}
+            <option value="">All Routing Methods</option>
+            <option value="1">Vendor Match</option>
+            <option value="2">Pattern Match</option>
+            <option value="3">AI Analysis</option>
           </select>
 
           <select
@@ -223,9 +243,10 @@ export default function AuditLog() {
             className="bg-navy border border-cobalt text-silver text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-gold/50"
           >
             <option value="">All Statuses</option>
-            {['auto_routed','held_for_review','escalated','pending'].map((s) => (
-              <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
-            ))}
+            <option value="auto_routed">Auto-Routed</option>
+            <option value="held_for_review">Held for Review</option>
+            <option value="escalated">Escalated</option>
+            <option value="pending">Pending</option>
           </select>
 
           <select
@@ -285,7 +306,7 @@ export default function AuditLog() {
                       <td className="px-4 py-3 text-gold font-semibold whitespace-nowrap">{formatCurrency(inv.amount)}</td>
                       <td className="px-4 py-3 text-ivory max-w-[160px] truncate">{inv.entity_name || inv.entity}</td>
                       <td className="px-4 py-3"><ConfidenceBadge score={inv.confidence_score || inv.confidence || 0} /></td>
-                      <td className="px-4 py-3 text-silver text-xs">T{inv.tier_used || inv.tier}</td>
+                      <td className="px-4 py-3"><TierBadge tier={inv.tier_used || inv.tier} /></td>
                       <td className="px-4 py-3"><StatusBadge status={inv.status || inv.routing_decision} /></td>
                       <td className="px-4 py-3"><SourceBadge source={inv.source} /></td>
                       <td className="px-4 py-3 text-steel">

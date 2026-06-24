@@ -26,6 +26,48 @@ function formatCurrency(v) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v);
 }
 
+function tierLabel(tier) {
+  if (!tier) return null;
+  const t = String(tier).toLowerCase();
+  if (t.includes('1')) return 'Vendor Match';
+  if (t.includes('2')) return 'Pattern Match';
+  if (t.includes('3')) return 'AI Analysis';
+  return tier;
+}
+
+function VendorLearningBadge({ vendorStatus, confirmationCount, threshold }) {
+  const count = confirmationCount || 0;
+  const target = threshold || 3;
+  const remaining = Math.max(0, target - count);
+
+  if (!vendorStatus || vendorStatus === 'auto_route') return null;
+
+  if (vendorStatus === 'new') {
+    return (
+      <div className="flex items-center gap-2 bg-orange-900/20 border border-orange-700/40 rounded-lg px-3 py-2.5 text-xs">
+        <span className="inline-block w-2 h-2 rounded-full bg-orange-400 shrink-0" />
+        <span className="text-orange-300 font-semibold">New Vendor</span>
+        <span className="text-silver">— confirm routing {remaining} time{remaining !== 1 ? 's' : ''} to enable auto-routing for all future invoices from this vendor</span>
+      </div>
+    );
+  }
+  if (vendorStatus === 'learning') {
+    const pct = Math.min(100, Math.round((count / target) * 100));
+    return (
+      <div className="flex flex-col gap-1.5 bg-blue-900/20 border border-blue-700/40 rounded-lg px-3 py-2.5 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="text-blue-300 font-semibold">Learning this vendor ({count}/{target} confirmations)</span>
+          <span className="text-silver">{remaining} more to auto-route</span>
+        </div>
+        <div className="h-1.5 bg-cobalt/60 rounded-full overflow-hidden">
+          <div className="h-full bg-blue-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
 function parseLineItem(li) {
   if (typeof li === 'string') {
     const raw = li.replace(/^["']|["']$/g, '').trim();
@@ -172,7 +214,7 @@ function InvoiceDetailModal({ item, onClose }) {
               { icon: Hash, label: 'Invoice #', value: item.invoice_number || ex.invoice_number },
               { icon: Calendar, label: 'Date', value: item.invoice_date || ex.invoice_date },
               { icon: Hash, label: 'PO Number', value: item.po_number || ex.po_number },
-              { icon: GitBranch, label: 'Tier', value: item.tier_used ? `Tier ${item.tier_used.replace(/\D/g, '')}` : null },
+              { icon: GitBranch, label: 'Routing Method', value: tierLabel(item.tier_used) },
               { icon: Brain, label: 'Confidence', value: item.confidence_score != null ? `${Math.round(item.confidence_score * 100)}%` : null },
             ].filter((f) => f.value).map(({ icon: Icon, label, value }) => (
               <div key={label} className="bg-cobalt/20 rounded-lg px-3 py-2.5">
@@ -326,7 +368,8 @@ function PendingCard({ item, onConfirm }) {
         <div className="flex items-center gap-3">
           <span className="text-gold font-bold text-lg">{formatCurrency(item.amount)}</span>
           <span className="text-xs text-silver">
-            {item.confidence_score != null ? `${Math.round(item.confidence_score * 100)}%` : '0%'} confidence — Tier {item.tier_used || item.tier}
+            {item.confidence_score != null ? `${Math.round(item.confidence_score * 100)}%` : '0%'} confidence
+            {tierLabel(item.tier_used || item.tier) && ` — ${tierLabel(item.tier_used || item.tier)}`}
           </span>
           <button
             onClick={() => setShowDetail(true)}
@@ -340,6 +383,12 @@ function PendingCard({ item, onConfirm }) {
       </div>
 
       <div className="p-5 flex flex-col gap-4">
+        <VendorLearningBadge
+          vendorStatus={item.vendor_status}
+          confirmationCount={item.confirmation_count}
+          threshold={item.auto_route_threshold}
+        />
+
         {item.reasoning && (
           <div className="bg-midnight/50 rounded-lg p-4 border border-cobalt">
             <p className="text-xs text-silver uppercase font-medium mb-1">AI Reasoning</p>

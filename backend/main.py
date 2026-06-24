@@ -34,6 +34,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import auth
@@ -346,7 +347,7 @@ def _decision_to_dict(d: RoutingDecision) -> dict:
     }
 
 
-def _review_to_dict(r: ReviewQueue, d: Optional[RoutingDecision] = None) -> dict:
+def _review_to_dict(r: ReviewQueue, d: Optional[RoutingDecision] = None, v: Optional["VendorProfile"] = None) -> dict:
     base = {
         "id": r.id,
         "routing_decision_id": r.routing_decision_id,
@@ -374,6 +375,16 @@ def _review_to_dict(r: ReviewQueue, d: Optional[RoutingDecision] = None) -> dict
             "tier_used": d.tier_used,
             "confidence_score": d.confidence_score,
         })
+    if v:
+        base.update({
+            "vendor_status": v.status,
+            "confirmation_count": v.confirmation_count,
+            "auto_route_threshold": v.auto_route_threshold,
+        })
+    else:
+        base.setdefault("vendor_status", "new")
+        base.setdefault("confirmation_count", 0)
+        base.setdefault("auto_route_threshold", 3)
     return base
 
 
@@ -768,8 +779,9 @@ async def get_review_queue(
     """Get review queue items with full routing decision detail (default: pending only)."""
     from sqlalchemy.orm import outerjoin
     query = (
-        db.query(ReviewQueue, RoutingDecision)
+        db.query(ReviewQueue, RoutingDecision, VendorProfile)
         .outerjoin(RoutingDecision, ReviewQueue.routing_decision_id == RoutingDecision.id)
+        .outerjoin(VendorProfile, func.lower(ReviewQueue.vendor_name) == VendorProfile.canonical_name)
         .order_by(ReviewQueue.created_at.desc())
     )
 
@@ -779,7 +791,7 @@ async def get_review_queue(
         query = query.filter(ReviewQueue.status == "pending")
 
     results = query.all()
-    return [_review_to_dict(r, d) for r, d in results]
+    return [_review_to_dict(r, d, v) for r, d, v in results]
 
 
 @app.get("/api/review-queue/count")
