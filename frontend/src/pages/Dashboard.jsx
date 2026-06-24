@@ -107,6 +107,64 @@ function WatchFolderPanel({ data }) {
   const fileInputRef = useRef(null);
   const [uploading, setUploading] = useState(false);
 
+  // Local folder watch
+  const [dirHandle, setDirHandle] = useState(null);
+  const [localCount, setLocalCount] = useState(0);
+  const watchIntervalRef = useRef(null);
+  const seenFilesRef = useRef(new Set());
+  const supportsApi = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+
+  const uploadFile = async (file, name) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    await client.post('/invoices/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+    setLocalCount((c) => c + 1);
+    addToast(`📁 "${name}" auto-processed from local folder`, 'success', 4000);
+  };
+
+  const scanDir = async (handle) => {
+    const EXTS = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.docx', '.txt']);
+    try {
+      for await (const [name, fh] of handle.entries()) {
+        if (fh.kind !== 'file') continue;
+        const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
+        if (!EXTS.has(ext)) continue;
+        const file = await fh.getFile();
+        const key = `${name}:${file.lastModified}`;
+        if (seenFilesRef.current.has(key)) continue;
+        seenFilesRef.current.add(key);
+        uploadFile(file, name).catch(() => addToast(`Failed to process "${name}"`, 'error'));
+      }
+    } catch {
+      // Permission revoked or folder moved — stop silently
+      stopWatch();
+    }
+  };
+
+  const startWatch = async () => {
+    try {
+      const handle = await window.showDirectoryPicker({ mode: 'read' });
+      seenFilesRef.current = new Set();
+      setLocalCount(0);
+      setDirHandle(handle);
+      // First scan immediately, then every 4 seconds
+      scanDir(handle);
+      watchIntervalRef.current = setInterval(() => scanDir(handle), 4000);
+      addToast(`Watching "${handle.name}" — any invoice file you save there will be auto-processed`, 'success', 6000);
+    } catch (err) {
+      if (err.name !== 'AbortError') addToast('Could not access folder', 'error');
+    }
+  };
+
+  const stopWatch = () => {
+    clearInterval(watchIntervalRef.current);
+    setDirHandle(null);
+    setLocalCount(0);
+    seenFilesRef.current = new Set();
+  };
+
+  useEffect(() => () => clearInterval(watchIntervalRef.current), []);
+
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -114,12 +172,10 @@ function WatchFolderPanel({ data }) {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      await client.post('/invoices/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      addToast(`"${file.name}" processed via folder drop — dashboard will update shortly`, 'success', 6000);
+      await client.post('/invoices/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      addToast(`"${file.name}" processed`, 'success', 5000);
     } catch {
-      addToast('Upload failed — check the server is running', 'error');
+      addToast('Upload failed — check the server', 'error');
     } finally {
       setUploading(false);
       e.target.value = '';
@@ -127,55 +183,88 @@ function WatchFolderPanel({ data }) {
   };
 
   return (
-    <div className="bg-navy rounded-xl border border-cobalt shadow-lg p-5">
-      <div className="flex items-center justify-between mb-3">
+    <div className="bg-navy rounded-xl border border-cobalt shadow-lg p-5 flex flex-col gap-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Folder className="w-4 h-4 text-gold" />
-          <span className="text-sm font-semibold text-ivory uppercase tracking-wide">Folder Watch — Live</span>
+          <span className="text-sm font-semibold text-ivory uppercase tracking-wide">Folder Watch</span>
         </div>
         <span className="flex items-center gap-1.5 text-xs font-semibold text-green-400">
           <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
           ACTIVE
         </span>
       </div>
-      <div className="bg-midnight/60 rounded-lg p-3 mb-3 font-mono text-xs text-silver">
-        <p className="text-steel">Server watch path:</p>
+
+      {/* Server folder info */}
+      <div className="bg-midnight/60 rounded-lg p-3 font-mono text-xs text-silver">
+        <p className="text-steel">Server path (always-on):</p>
         <p className="text-ivory">/watched/incoming/</p>
-        <p className="text-steel mt-1">Files dropped there are auto-processed instantly</p>
+        <p className="text-steel mt-1">Files placed here are processed instantly, 24/7</p>
       </div>
+
       {folders.length > 0 && (
         <div>
           <p className="text-xs text-silver mb-2 uppercase tracking-wide font-medium">Processed Vendor Folders</p>
-          <div className="flex flex-col gap-1 max-h-32 overflow-y-auto">
+          <div className="flex flex-col gap-1 max-h-24 overflow-y-auto">
             {folders.map((f, i) => (
               <div key={i} className="text-xs text-ivory font-mono bg-midnight/40 px-2 py-1 rounded">📂 {f}</div>
             ))}
           </div>
         </div>
       )}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".pdf,.png,.jpg,.jpeg,.docx,.txt"
-        className="hidden"
-        onChange={handleFileChange}
-      />
+
+      {/* Divider + local watch */}
+      <div className="border-t border-cobalt/40 pt-3 flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-silver uppercase tracking-wide">Watch Your Local Folder</p>
+          {!supportsApi && (
+            <span className="text-[10px] text-orange-400 bg-orange-900/20 border border-orange-700/30 px-2 py-0.5 rounded">Chrome / Edge only</span>
+          )}
+        </div>
+
+        {!supportsApi ? (
+          <p className="text-xs text-steel leading-relaxed">
+            Your browser doesn't support the File System API. Open this page in Chrome or Edge to use local folder watching.
+          </p>
+        ) : dirHandle ? (
+          <>
+            <div className="bg-green-900/15 border border-green-700/40 rounded-lg px-3 py-2.5">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse shrink-0" />
+                <p className="text-green-300 text-xs font-semibold truncate">📂 {dirHandle.name}</p>
+              </div>
+              <p className="text-silver text-xs">{localCount} file{localCount !== 1 ? 's' : ''} processed this session</p>
+              <p className="text-steel text-[10px] mt-0.5">Save any invoice here — it routes automatically within 4 seconds</p>
+            </div>
+            <button
+              onClick={stopWatch}
+              className="w-full text-xs text-red-400 hover:text-red-300 border border-red-800/50 hover:border-red-600/60 py-1.5 rounded-lg transition-colors"
+            >
+              Stop Watching
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={startWatch}
+            className="w-full flex items-center justify-center gap-2 bg-gold hover:bg-amber text-midnight text-xs font-bold py-2 rounded-lg transition-colors"
+          >
+            <Folder className="w-3.5 h-3.5" />
+            Select Local Folder to Watch
+          </button>
+        )}
+      </div>
+
+      {/* Single file fallback */}
+      <input ref={fileInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.docx,.txt" className="hidden" onChange={handleFileChange} />
       <button
         onClick={() => fileInputRef.current?.click()}
         disabled={uploading}
-        className="mt-3 w-full flex items-center justify-center gap-2 bg-cobalt hover:bg-slate disabled:opacity-60 text-silver hover:text-ivory text-xs font-medium py-2 rounded-lg transition-colors border border-cobalt"
+        className="w-full flex items-center justify-center gap-1.5 text-steel hover:text-silver disabled:opacity-50 text-xs py-1.5 rounded-lg border border-cobalt/40 hover:border-cobalt transition-colors"
       >
-        {uploading ? (
-          <>
-            <div className="w-3 h-3 border-2 border-silver border-t-transparent rounded-full animate-spin" />
-            Processing...
-          </>
-        ) : (
-          <>
-            <Folder className="w-3.5 h-3.5" />
-            Select Invoice File to Drop
-          </>
-        )}
+        {uploading
+          ? <><div className="w-3 h-3 border border-silver border-t-transparent rounded-full animate-spin" /> Processing...</>
+          : 'Or select a single file to process'}
       </button>
     </div>
   );
