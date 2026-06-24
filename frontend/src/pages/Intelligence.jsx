@@ -371,7 +371,7 @@ export default function Intelligence() {
         <div className="flex flex-col gap-4">
           <div>
             <h2 className="text-sm font-bold text-ivory uppercase tracking-wide">Entity Intelligence</h2>
-            <p className="text-silver text-xs mt-1">Routing volume and accuracy across all 12 entities.</p>
+            <p className="text-silver text-xs mt-1">Routing volume and accuracy across all 50 entities.</p>
           </div>
 
           <div className="bg-navy rounded-xl border border-cobalt shadow-lg p-5">

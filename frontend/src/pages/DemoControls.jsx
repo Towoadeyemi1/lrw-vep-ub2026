@@ -16,7 +16,7 @@ const CLEARED = [
 ];
 
 const KEPT = [
-  'Entity configuration (12 entities)',
+  'Entity configuration (50 entities)',
   'Routing rules and classification logic',
   'Sample invoice library',
   'Watch folder configuration',
