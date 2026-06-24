@@ -1,0 +1,30 @@
+[Unit]
+Description=Invoice Routing Intelligence Demo
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/invoice-router/backend
+EnvironmentFile=/var/www/invoice-router/backend/.env
+ExecStart=/var/www/invoice-router/venv/bin/uvicorn main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 2 \
+    --log-level info
+Restart=always
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=invoice-router
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
