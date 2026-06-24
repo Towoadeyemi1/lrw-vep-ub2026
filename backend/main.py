@@ -856,6 +856,51 @@ async def reject_review(
     return {"success": True, **result}
 
 
+@app.post("/api/routing-decisions/{decision_id}/recall")
+async def recall_routing_decision(
+    decision_id: str,
+    _auth: bool = Depends(auth.require_auth),
+    db: Session = Depends(get_db),
+):
+    """Recall a routed invoice back to the review queue for re-routing."""
+    decision = db.query(RoutingDecision).filter(RoutingDecision.id == decision_id).first()
+    if not decision:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Routing decision not found")
+
+    # If already pending in queue, return that existing item
+    existing = db.query(ReviewQueue).filter(
+        ReviewQueue.routing_decision_id == decision_id,
+        ReviewQueue.status == "pending",
+    ).first()
+    if existing:
+        return {"success": True, "review_id": existing.id, "already_pending": True}
+
+    review = ReviewQueue(
+        id=str(uuid.uuid4()),
+        routing_decision_id=decision_id,
+        top_candidates=decision.top_candidates,
+        invoice_filename=decision.invoice_filename,
+        vendor_name=decision.vendor_name_raw,
+        amount=decision.amount,
+        extracted_data=decision.extracted_data,
+        priority="high",
+        status="pending",
+        created_at=datetime.utcnow(),
+    )
+    db.add(review)
+    decision.routing_status = "recalled_for_review"
+    db.commit()
+
+    _log_event(
+        db,
+        event_type="invoice_recalled",
+        description=f"Invoice from '{decision.vendor_name_raw}' recalled for re-review (originally routed to {decision.entity_name})",
+        metadata={"decision_id": decision_id, "original_entity": decision.entity_name},
+    )
+
+    return {"success": True, "review_id": review.id, "already_pending": False}
+
+
 # ── Vendors ────────────────────────────────────────────────────────────────────
 
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FileText, TrendingUp, Clock, Building2, Folder, Mail, CheckCircle } from 'lucide-react';
 import { useDashboard } from '../hooks/useDashboard';
 import { MetricCard } from '../components/Common/MetricCard';
@@ -37,14 +38,25 @@ function ConfidenceBadge({ score }) {
   return <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cls}`}>{score}%</span>;
 }
 
+function tierLabel(tier) {
+  if (!tier) return null;
+  const t = String(tier).toLowerCase();
+  if (t.includes('1')) return 'Vendor Match';
+  if (t.includes('2')) return 'Pattern Match';
+  if (t.includes('3')) return 'AI Analysis';
+  if (t.includes('human')) return 'Human Review';
+  return tier;
+}
+
 function TierBadge({ tier }) {
-  const cfgs = {
-    1: 'bg-blue-800 text-blue-200',
-    2: 'bg-amber/30 text-gold',
-    3: 'bg-orange-800 text-orange-200',
-    human: 'bg-red-900 text-red-200',
-  };
-  return <span className={`text-xs font-bold px-2 py-0.5 rounded ${cfgs[tier] || 'bg-steel text-cloud'}`}>T{tier}</span>;
+  const label = tierLabel(tier);
+  const cls = {
+    'Vendor Match':   'bg-green-900/40 text-green-300',
+    'Pattern Match':  'bg-blue-900/40 text-blue-300',
+    'AI Analysis':    'bg-orange-900/40 text-orange-300',
+    'Human Review':   'bg-red-900/40 text-red-300',
+  }[label] || 'bg-steel/30 text-silver';
+  return <span className={`text-xs font-bold px-2 py-0.5 rounded ${cls}`}>{label || tier}</span>;
 }
 
 function LearningEventRow({ event }) {
@@ -67,10 +79,13 @@ function LearningEventRow({ event }) {
   );
 }
 
-function EntityCard({ entity, maxVolume }) {
+function EntityCard({ entity, maxVolume, onClick }) {
   const pct = maxVolume > 0 ? (entity.invoice_count / maxVolume) * 100 : 0;
   return (
-    <div className="bg-navy rounded-xl border border-cobalt p-4">
+    <div
+      className={`bg-navy rounded-xl border border-cobalt p-4 transition-all duration-200 ${onClick ? 'cursor-pointer hover:border-gold/50 hover:bg-cobalt/20' : ''}`}
+      onClick={onClick}
+    >
       <div className="flex items-center justify-between mb-2">
         <span className="text-ivory text-xs font-semibold truncate">{entity.name}</span>
         <EntityBadge vertical={entity.vertical || entity.entity_type || 'default'} className="text-[10px] py-0" />
@@ -189,6 +204,7 @@ function EmailWatchPanel({ data }) {
 
 export default function Dashboard() {
   const { data, loading, error } = useDashboard(5000);
+  const navigate = useNavigate();
   const [events, setEvents] = useState([]);
   const [watchData, setWatchData] = useState(null);
 
@@ -247,6 +263,7 @@ export default function Dashboard() {
           value={<AnimatedCounter value={totalProcessed} />}
           icon={FileText}
           subLabel="invoices processed"
+          onClick={() => navigate('/audit')}
         />
         <MetricCard
           label="Auto-Routed"
@@ -254,6 +271,7 @@ export default function Dashboard() {
           icon={TrendingUp}
           valueColor={autoRouteColor}
           subLabel="of all invoices"
+          onClick={() => navigate('/audit')}
         />
         <MetricCard
           label="Pending Review"
@@ -261,12 +279,14 @@ export default function Dashboard() {
           icon={Clock}
           valueColor={pendingReview > 0 ? 'text-red-400' : 'text-green-400'}
           subLabel={pendingReview > 0 ? 'requires attention' : 'all clear'}
+          onClick={() => navigate('/review')}
         />
         <MetricCard
           label="Known Vendors"
           value={<AnimatedCounter value={knownVendors} />}
           icon={Building2}
           subLabel={`${autoRoutingVendors} auto-routing`}
+          onClick={() => navigate('/intelligence')}
         />
       </div>
 
@@ -279,10 +299,15 @@ export default function Dashboard() {
       {/* Entity heatmap */}
       {entities.length > 0 && (
         <div>
-          <h2 className="text-xs font-semibold text-silver uppercase tracking-wide mb-3">Entity Routing Heatmap</h2>
+          <h2 className="text-xs font-semibold text-silver uppercase tracking-wide mb-3">Entity Routing Heatmap — click to see invoices</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
             {entities.slice(0, 12).map((e, i) => (
-              <EntityCard key={i} entity={e} maxVolume={maxVol} />
+              <EntityCard
+                key={i}
+                entity={e}
+                maxVolume={maxVol}
+                onClick={() => navigate(`/audit?vendor=${encodeURIComponent(e.name)}`)}
+              />
             ))}
           </div>
         </div>
@@ -292,18 +317,25 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Recent decisions */}
         <div className="bg-navy rounded-xl border border-cobalt shadow-lg p-5">
-          <h3 className="text-xs font-semibold text-silver uppercase tracking-wide mb-4">Recent Decisions</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xs font-semibold text-silver uppercase tracking-wide">Recent Decisions</h3>
+            <button onClick={() => navigate('/audit')} className="text-xs text-gold hover:underline">View all →</button>
+          </div>
           {recentDecisions.length === 0 ? (
             <p className="text-steel text-sm">No decisions yet</p>
           ) : (
             <div className="flex flex-col divide-y divide-cobalt/40">
               {recentDecisions.slice(0, 10).map((d, i) => (
-                <div key={i} className="flex items-center gap-3 py-2.5 text-xs">
+                <div
+                  key={i}
+                  className="flex items-center gap-3 py-2.5 text-xs cursor-pointer hover:bg-cobalt/10 rounded px-1 -mx-1 transition-colors"
+                  onClick={() => navigate(`/audit?vendor=${encodeURIComponent(d.vendor_name || d.vendor || '')}`)}
+                >
                   <div className="flex-1 min-w-0">
                     <p className="text-ivory font-medium truncate">{d.vendor_name || d.vendor}</p>
                     <p className="text-silver mt-0.5">{d.entity_name || d.entity}</p>
                   </div>
-                  <ConfidenceBadge score={d.confidence_score || d.confidence || 0} />
+                  <ConfidenceBadge score={d.confidence_score != null ? Math.round(d.confidence_score * 100) : (d.confidence || 0)} />
                   <TierBadge tier={d.tier_used || d.tier} />
                   <span className="text-gold font-semibold w-16 text-right">{formatCurrency(d.amount)}</span>
                   <span className="text-steel w-14 text-right shrink-0">{timeAgo(d.created_at || d.timestamp)}</span>

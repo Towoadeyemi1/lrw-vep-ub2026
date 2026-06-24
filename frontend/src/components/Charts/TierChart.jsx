@@ -1,16 +1,23 @@
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
+const TIER_LABELS = {
+  tier1_lookup:  'Vendor Match',
+  tier2_scoring: 'Pattern Match',
+  tier3_llm:     'AI Analysis',
+  human_review:  'Human Review',
+};
+
 const TIER_COLORS = {
-  'Tier 1': '#22C55E',
-  'Tier 2': '#3B82F6',
-  'Tier 3': '#F97316',
-  'Human': '#EF4444',
+  'Vendor Match':   '#22C55E',
+  'Pattern Match':  '#3B82F6',
+  'AI Analysis':    '#F97316',
+  'Human Review':   '#EF4444',
 };
 
 export function TierChart({ tierUsage }) {
   const data = Object.entries(tierUsage || {})
     .filter(([, v]) => v > 0)
-    .map(([name, value]) => ({ name, value }));
+    .map(([key, value]) => ({ name: TIER_LABELS[key] || key, value }));
 
   if (data.length === 0) {
     return (
