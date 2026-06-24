@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertTriangle, CheckCircle, Trash2, Play, RefreshCw, LayoutDashboard, Layers } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Trash2, Play, LayoutDashboard, Layers, Wifi, FileText, Brain, GitBranch } from 'lucide-react';
 import { useToast } from '../components/Common/Toast';
 import client from '../api/client';
 
@@ -31,6 +31,53 @@ const DEMO_SEQUENCE = [
   'sample_05',
   'sample_06',
 ];
+
+function tierLabel(tier) {
+  if (!tier) return '?';
+  const t = String(tier).toLowerCase();
+  if (t.includes('1')) return 'Vendor Match';
+  if (t.includes('2')) return 'Pattern Match';
+  if (t.includes('3')) return 'AI Analysis';
+  return tier;
+}
+
+const PIPELINE_STAGES = [
+  { id: 'watching',    icon: Wifi,         label: 'Watching'    },
+  { id: 'received',   icon: FileText,      label: 'Received'    },
+  { id: 'extracting', icon: Brain,         label: 'AI Reading'  },
+  { id: 'classifying',icon: GitBranch,     label: 'Classifying' },
+  { id: 'routed',     icon: CheckCircle,   label: 'Routed'      },
+];
+
+function MiniPipeline({ stage }) {
+  return (
+    <div className="flex items-center justify-between bg-midnight/60 border border-cobalt/60 rounded-xl px-4 py-3 mb-5">
+      {PIPELINE_STAGES.map((s, idx) => {
+        const Icon = s.icon;
+        const isActive = idx === stage;
+        const isDone   = idx < stage;
+        return (
+          <div key={s.id} className="flex items-center gap-0">
+            <div className={`flex flex-col items-center gap-1 transition-all duration-300 ${
+              isActive ? 'text-gold scale-110' : isDone ? 'text-green-400' : 'text-steel'
+            }`}>
+              <div className="relative">
+                <Icon className={`w-4 h-4 ${isActive ? 'animate-pulse' : ''}`} />
+                {idx === 0 && stage === 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                )}
+              </div>
+              <span className="text-[9px] font-medium whitespace-nowrap hidden sm:block">{s.label}</span>
+            </div>
+            {idx < PIPELINE_STAGES.length - 1 && (
+              <div className={`w-6 h-px mx-1 transition-all duration-500 ${idx < stage ? 'bg-green-400/60' : 'bg-cobalt/60'}`} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function ResetDialog({ onConfirm, onCancel, loading }) {
   return (
@@ -87,20 +134,29 @@ function ResetDialog({ onConfirm, onCancel, loading }) {
 
 function DemoSequenceOverlay({ onClose }) {
   const navigate = useNavigate();
-  const [phase, setPhase] = useState('configure'); // 'configure' | 'running' | 'done'
+  const [phase, setPhase] = useState('configure');
   const [rounds, setRounds] = useState(1);
-  const [steps, setSteps] = useState([]);
   const [processedTotal, setProcessedTotal] = useState(0);
   const [currentRound, setCurrentRound] = useState(1);
   const [currentStep, setCurrentStep] = useState(null);
   const [lastResults, setLastResults] = useState([]);
+  const [pipelineStage, setPipelineStage] = useState(0);
 
   const totalInvoices = rounds * DEMO_SEQUENCE.length;
+
+  const animatePipeline = () => {
+    setPipelineStage(1);
+    const t1 = setTimeout(() => setPipelineStage(2), 220);
+    const t2 = setTimeout(() => setPipelineStage(3), 460);
+    const t3 = setTimeout(() => setPipelineStage(4), 680);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  };
 
   const handleStart = async () => {
     setPhase('running');
     setProcessedTotal(0);
     setLastResults([]);
+    setPipelineStage(0);
     let done = 0;
 
     for (let r = 0; r < rounds; r++) {
@@ -110,6 +166,7 @@ function DemoSequenceOverlay({ onClose }) {
       for (let i = 0; i < DEMO_SEQUENCE.length; i++) {
         const id = DEMO_SEQUENCE[i];
         setCurrentStep(id);
+        const cleanup = animatePipeline();
 
         try {
           const res = await client.post(`/invoices/sample/${id}`);
@@ -126,16 +183,18 @@ function DemoSequenceOverlay({ onClose }) {
           roundResults.push({ id, label: id, ok: false });
         }
 
+        cleanup();
         done++;
         setProcessedTotal(done);
         if (!(r === rounds - 1 && i === DEMO_SEQUENCE.length - 1)) {
-          await new Promise((res) => setTimeout(res, 800));
+          await new Promise((res) => setTimeout(res, 900));
         }
       }
       setLastResults(roundResults);
     }
 
     setCurrentStep(null);
+    setPipelineStage(4);
     setPhase('done');
   };
 
@@ -206,14 +265,25 @@ function DemoSequenceOverlay({ onClose }) {
         {phase === 'running' && (
           <>
             <h2 className="text-ivory font-bold text-xl mb-1">Running Demo Sequence</h2>
-            <p className="text-silver text-sm mb-5">
-              Round {currentRound} of {rounds} — {currentStep || '…'}
+            <p className="text-silver text-sm mb-4">
+              Round {currentRound} of {rounds}
             </p>
 
+            {/* Live pipeline tracker */}
+            <MiniPipeline stage={pipelineStage} />
+
+            {/* Current invoice being processed */}
+            {currentStep && (
+              <div className="flex items-center gap-3 text-sm text-gold mb-4">
+                <div className="w-4 h-4 border-2 border-gold border-t-transparent rounded-full animate-spin shrink-0" />
+                Processing {currentStep}…
+              </div>
+            )}
+
             {/* Overall progress bar */}
-            <div className="mb-5">
+            <div className="mb-4">
               <div className="flex justify-between text-xs text-silver mb-2">
-                <span>Overall progress</span>
+                <span>Progress</span>
                 <span>{processedTotal} / {totalInvoices}</span>
               </div>
               <div className="h-2 bg-cobalt rounded-full overflow-hidden">
@@ -225,33 +295,24 @@ function DemoSequenceOverlay({ onClose }) {
               </div>
             </div>
 
-            {/* Last round results */}
+            {/* Completed invoices this round */}
             {lastResults.length > 0 && (
-              <div className="flex flex-col gap-2 max-h-52 overflow-y-auto mb-4">
+              <div className="flex flex-col gap-1.5 max-h-44 overflow-y-auto">
                 {lastResults.map((r) => (
-                  <div key={r.id} className="flex items-center gap-3 text-sm">
-                    <div className="w-6 shrink-0 flex items-center justify-center">
+                  <div key={r.id} className="flex items-start gap-2 text-xs">
+                    <div className="shrink-0 mt-0.5">
                       {r.ok
-                        ? <CheckCircle className="w-4 h-4 text-green-400" />
-                        : <span className="text-red-400 text-xs">✕</span>}
+                        ? <CheckCircle className="w-3.5 h-3.5 text-green-400" />
+                        : <span className="text-red-400">✕</span>}
                     </div>
-                    <div className="min-w-0">
-                      {r.ok
-                        ? <span className="text-green-300">
-                            ✓ {r.label} → <span className="text-ivory">{r.entityName}</span>{' '}
-                            <span className="text-silver">({r.confidence}%) [T{r.tier}]</span>
-                          </span>
-                        : <span className="text-red-400">✕ {r.label} — failed</span>}
-                    </div>
+                    {r.ok
+                      ? <span className="text-green-300 leading-relaxed">
+                          {r.label} → <span className="text-ivory font-medium">{r.entityName}</span>{' '}
+                          <span className="text-steel">({Math.round(r.confidence * 100)}% · {tierLabel(r.tier)})</span>
+                        </span>
+                      : <span className="text-red-400">{r.label} — failed</span>}
                   </div>
                 ))}
-              </div>
-            )}
-
-            {currentStep && (
-              <div className="flex items-center gap-3 text-sm text-gold">
-                <div className="w-4 h-4 border-2 border-gold border-t-transparent rounded-full animate-spin shrink-0" />
-                Processing {currentStep}…
               </div>
             )}
           </>
@@ -260,25 +321,25 @@ function DemoSequenceOverlay({ onClose }) {
         {/* ── Done ── */}
         {phase === 'done' && (
           <>
-            <h2 className="text-ivory font-bold text-xl mb-4">Demo Complete</h2>
+            <h2 className="text-ivory font-bold text-xl mb-1">Demo Complete</h2>
+            <p className="text-silver text-sm mb-4">All invoices processed through the 3-tier pipeline.</p>
 
-            {/* Last round results */}
-            <div className="flex flex-col gap-2 max-h-52 overflow-y-auto mb-5">
+            <MiniPipeline stage={4} />
+
+            <div className="flex flex-col gap-1.5 max-h-44 overflow-y-auto mb-5">
               {lastResults.map((r) => (
-                <div key={r.id} className="flex items-center gap-3 text-sm">
-                  <div className="w-6 shrink-0 flex items-center justify-center">
+                <div key={r.id} className="flex items-start gap-2 text-xs">
+                  <div className="shrink-0 mt-0.5">
                     {r.ok
-                      ? <CheckCircle className="w-4 h-4 text-green-400" />
-                      : <span className="text-red-400 text-xs">✕</span>}
+                      ? <CheckCircle className="w-3.5 h-3.5 text-green-400" />
+                      : <span className="text-red-400">✕</span>}
                   </div>
-                  <div className="min-w-0">
-                    {r.ok
-                      ? <span className="text-green-300">
-                          ✓ {r.label} → <span className="text-ivory">{r.entityName}</span>{' '}
-                          <span className="text-silver">({r.confidence}%) [T{r.tier}]</span>
-                        </span>
-                      : <span className="text-red-400">✕ {r.label} — failed</span>}
-                  </div>
+                  {r.ok
+                    ? <span className="text-green-300 leading-relaxed">
+                        {r.label} → <span className="text-ivory font-medium">{r.entityName}</span>{' '}
+                        <span className="text-steel">({Math.round(r.confidence * 100)}% · {tierLabel(r.tier)})</span>
+                      </span>
+                    : <span className="text-red-400">{r.label} — failed</span>}
                 </div>
               ))}
             </div>
