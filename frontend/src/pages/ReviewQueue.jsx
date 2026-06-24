@@ -374,10 +374,10 @@ function PendingCard({ item, onConfirm }) {
           <button
             onClick={() => setShowDetail(true)}
             title="View invoice details"
-            className="flex items-center gap-1.5 text-xs text-gold font-semibold border border-gold/60 hover:bg-gold/15 hover:border-gold px-3 py-1.5 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 text-xs font-bold bg-gold hover:bg-amber text-midnight px-3 py-1.5 rounded-lg transition-colors shrink-0"
           >
             <Eye className="w-3.5 h-3.5" />
-            View
+            View Invoice
           </button>
         </div>
       </div>
