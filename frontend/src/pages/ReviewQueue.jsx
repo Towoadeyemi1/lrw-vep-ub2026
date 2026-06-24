@@ -26,6 +26,26 @@ function formatCurrency(v) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v);
 }
 
+function parseLineItem(li) {
+  if (typeof li === 'string') {
+    const raw = li.replace(/^["']|["']$/g, '').trim();
+    const amtMatch = raw.match(/:\s*\$([0-9,]+(?:\.\d+)?)["']?\s*$/);
+    if (amtMatch) {
+      const amount = parseFloat(amtMatch[1].replace(/,/g, ''));
+      const description = raw.slice(0, raw.lastIndexOf(amtMatch[0])).replace(/:\s*$/, '').trim();
+      return { description, amount };
+    }
+    return { description: raw, amount: null };
+  }
+  const description = li.description || li.name || li.item || '';
+  let amount = li.amount ?? li.total ?? li.price ?? null;
+  if (amount == null && description) {
+    const m = description.match(/:\s*\$([0-9,]+(?:\.\d+)?)\s*$/);
+    if (m) amount = parseFloat(m[1].replace(/,/g, ''));
+  }
+  return { description: description || JSON.stringify(li), amount };
+}
+
 function timeAgo(dateStr) {
   if (!dateStr) return '—';
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -190,14 +210,17 @@ function InvoiceDetailModal({ item, onClose }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {lineItems.map((li, i) => (
-                      <tr key={i} className="border-t border-cobalt/20 hover:bg-cobalt/10">
-                        <td className="px-3 py-2 text-ivory/90">{li.description || li.name || li.item || JSON.stringify(li)}</td>
-                        <td className="px-3 py-2 text-gold text-right font-medium">
-                          {li.amount != null ? `$${Number(li.amount).toFixed(2)}` : li.total != null ? `$${Number(li.total).toFixed(2)}` : '—'}
-                        </td>
-                      </tr>
-                    ))}
+                    {lineItems.map((li, i) => {
+                      const { description, amount } = parseLineItem(li);
+                      return (
+                        <tr key={i} className="border-t border-cobalt/20 hover:bg-cobalt/10">
+                          <td className="px-3 py-2 text-ivory/90">{description}</td>
+                          <td className="px-3 py-2 text-gold text-right font-medium">
+                            {amount != null ? `$${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -205,15 +228,21 @@ function InvoiceDetailModal({ item, onClose }) {
           )}
 
           {/* AI Reasoning */}
-          {item.llm_reasoning && (
-            <div className="bg-cobalt/10 border border-cobalt/40 rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Brain className="w-3.5 h-3.5 text-gold" />
-                <p className="text-xs text-silver uppercase font-medium tracking-wide">AI Reasoning</p>
-              </div>
-              <p className="text-ivory/80 text-sm leading-relaxed">{item.llm_reasoning}</p>
+          <div className="bg-cobalt/10 border border-cobalt/40 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Brain className="w-3.5 h-3.5 text-gold" />
+              <p className="text-xs text-silver uppercase font-medium tracking-wide">AI Reasoning</p>
             </div>
-          )}
+            {item.llm_reasoning ? (
+              <p className="text-ivory/80 text-sm leading-relaxed">{item.llm_reasoning}</p>
+            ) : (
+              <p className="text-steel text-sm italic">
+                {item.tier_used
+                  ? `Routed via ${item.tier_used} — no Claude AI analysis for this invoice (confidence was sufficient without it).`
+                  : 'No AI analysis recorded for this invoice.'}
+              </p>
+            )}
+          </div>
 
           {/* Signals matched */}
           {signals.length > 0 && (
@@ -302,7 +331,7 @@ function PendingCard({ item, onConfirm }) {
           <button
             onClick={() => setShowDetail(true)}
             title="View invoice details"
-            className="flex items-center gap-1.5 text-xs text-silver hover:text-ivory border border-cobalt hover:border-gold/50 px-2.5 py-1.5 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 text-xs text-gold font-semibold border border-gold/60 hover:bg-gold/15 hover:border-gold px-3 py-1.5 rounded-lg transition-colors"
           >
             <Eye className="w-3.5 h-3.5" />
             View
