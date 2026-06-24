@@ -223,17 +223,20 @@ export default function Dashboard() {
     );
   }
 
-  const metrics = data?.metrics || data || {};
-  const autoRoutePct = metrics.auto_route_percentage || metrics.auto_routed_percentage || 0;
+  const totals       = data?.totals   || {};
+  const vendorStats  = data?.vendors  || {};
+
+  const totalProcessed     = totals.invoices_processed ?? 0;
+  const autoRoutePct       = totals.auto_routed_pct    ?? 0;
+  const pendingReview      = data?.review_queue_count  ?? 0;
+  const knownVendors       = vendorStats.total         ?? 0;
+  const autoRoutingVendors = vendorStats.auto_route    ?? 0;
+
   const autoRouteColor = autoRoutePct >= 90 ? 'text-green-400' : autoRoutePct >= 70 ? 'text-gold' : 'text-red-400';
 
   const recentDecisions = data?.recent_decisions || data?.recent_invoices || [];
   const entities = data?.entities || data?.entity_stats || [];
   const maxVol = Math.max(...entities.map((e) => e.invoice_count || 0), 1);
-
-  const totalProcessed = metrics.total_processed || metrics.total_invoices || 0;
-  const pendingReview = metrics.pending_review || metrics.pending_count || 0;
-  const knownVendors = metrics.known_vendors || metrics.vendor_count || 0;
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -263,14 +266,14 @@ export default function Dashboard() {
           label="Known Vendors"
           value={<AnimatedCounter value={knownVendors} />}
           icon={Building2}
-          subLabel={`${metrics.auto_routing_vendors || 0} auto-routing`}
+          subLabel={`${autoRoutingVendors} auto-routing`}
         />
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <ConfidenceChart distribution={data?.confidence_distribution || {}} />
-        <TierChart tierUsage={data?.tier_usage || {}} />
+        <TierChart tierUsage={data?.tiers || {}} />
       </div>
 
       {/* Entity heatmap */}
