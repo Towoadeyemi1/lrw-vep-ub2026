@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Download, ChevronDown, ChevronUp, Globe, Mail, Folder, FlaskConical, Search } from 'lucide-react';
 import { useInvoices } from '../hooks/useInvoices';
@@ -146,8 +147,9 @@ function useDebounce(value, delay) {
 }
 
 export default function AuditLog() {
+  const [searchParams] = useSearchParams();
   const [expandedId, setExpandedId] = useState(null);
-  const [searchInput, setSearchInput] = useState('');
+  const [searchInput, setSearchInput] = useState(() => searchParams.get('vendor') || '');
   const { addToast } = useToast();
   const {
     invoices, loading, error, total, page, totalPages, setPage, filters, setFilters
@@ -197,19 +199,28 @@ export default function AuditLog() {
       {/* Filters + search */}
       <div className="flex flex-wrap items-center gap-3">
         {/* Search box */}
-        <div className="relative flex items-center">
-          <Search className="absolute left-3 w-4 h-4 text-steel pointer-events-none" />
-          <input
-            type="text"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search vendor, entity, invoice #..."
-            className="bg-navy border border-cobalt text-ivory text-sm rounded-lg pl-9 pr-4 py-2 w-64 focus:outline-none focus:border-gold/50 placeholder:text-steel"
-          />
-          {debouncedSearch && (
-            <span className="ml-2 text-xs text-silver whitespace-nowrap">
-              {filteredInvoices.length} result{filteredInvoices.length !== 1 ? 's' : ''}
-            </span>
+        <div className="flex flex-col gap-1.5">
+          <div className="relative flex items-center">
+            <Search className="absolute left-3 w-4 h-4 text-steel pointer-events-none" />
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search vendor, entity, invoice #..."
+              className="bg-navy border border-cobalt text-ivory text-sm rounded-lg pl-9 pr-4 py-2 w-64 focus:outline-none focus:border-gold/50 placeholder:text-steel"
+            />
+            {debouncedSearch && (
+              <span className="ml-2 text-xs text-silver whitespace-nowrap">
+                {filteredInvoices.length} result{filteredInvoices.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          {searchParams.get('vendor') && searchInput === searchParams.get('vendor') && (
+            <div className="flex items-center gap-1.5 text-xs text-gold">
+              <span>Showing invoices for vendor:</span>
+              <span className="font-semibold">{searchParams.get('vendor')}</span>
+              <button onClick={() => setSearchInput('')} className="text-steel hover:text-ivory ml-1">✕ Clear</button>
+            </div>
           )}
         </div>
 
