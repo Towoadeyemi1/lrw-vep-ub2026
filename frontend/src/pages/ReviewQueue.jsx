@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle } from 'lucide-react';
 import { useToast } from '../components/Common/Toast';
-import { StatusBadge } from '../components/Vendor/StatusBadge';
+import { ConfettiEffect } from '../components/Common/ConfettiEffect';
 import client from '../api/client';
 
 const ENTITIES = [
@@ -35,6 +36,76 @@ function timeAgo(dateStr) {
   if (h > 0) return `${h}h ago`;
   if (m > 0) return `${m}m ago`;
   return 'just now';
+}
+
+function AnimatedCheckmark() {
+  return (
+    <svg viewBox="0 0 100 100" className="w-24 h-24" fill="none">
+      <motion.circle
+        cx="50"
+        cy="50"
+        r="45"
+        stroke="#4ade80"
+        strokeWidth="5"
+        strokeLinecap="round"
+        initial={{ pathLength: 0, opacity: 0 }}
+        animate={{ pathLength: 1, opacity: 1 }}
+        transition={{ duration: 0.7, ease: 'easeOut' }}
+      />
+      <motion.path
+        d="M28 50 L44 66 L72 38"
+        stroke="#4ade80"
+        strokeWidth="5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        initial={{ pathLength: 0, opacity: 0 }}
+        animate={{ pathLength: 1, opacity: 1 }}
+        transition={{ duration: 0.5, delay: 0.5, ease: 'easeOut' }}
+      />
+    </svg>
+  );
+}
+
+function EmptyState() {
+  const navigate = useNavigate();
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="flex flex-col items-center justify-center py-20 gap-5"
+    >
+      <motion.div
+        initial={{ scale: 0, rotate: -20 }}
+        animate={{ scale: 1, rotate: 0 }}
+        transition={{ delay: 0.1, type: 'spring', stiffness: 280, damping: 22 }}
+      >
+        <AnimatedCheckmark />
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.6 }}
+        className="flex flex-col items-center gap-2"
+      >
+        <h2 className="text-gold text-2xl font-bold">All Clear</h2>
+        <p className="text-silver text-sm">No invoices awaiting review</p>
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.8 }}
+      >
+        <button
+          onClick={() => navigate('/process')}
+          className="flex items-center gap-2 text-gold border border-gold/40 hover:bg-gold/10 px-5 py-2.5 rounded-xl text-sm font-medium transition-colors mt-2"
+        >
+          Process an Invoice →
+        </button>
+      </motion.div>
+    </motion.div>
+  );
 }
 
 function PendingCard({ item, onConfirm }) {
@@ -159,7 +230,12 @@ export default function ReviewQueue() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [vendorStatuses, setVendorStatuses] = useState({});
+  const [confettiTrigger, setConfettiTrigger] = useState(false);
   const { addToast } = useToast();
+
+  useEffect(() => {
+    document.title = 'Review Queue | Invoice Routing Intelligence';
+  }, []);
 
   const fetchQueue = useCallback(async () => {
     try {
@@ -195,11 +271,12 @@ export default function ReviewQueue() {
       const updatedStatus = res.data?.vendor_status || res.data?.new_vendor_status;
       const vendorName = res.data?.vendor_name || res.data?.vendor;
 
-      // Update local status badge
       if (vendorName && updatedStatus) {
         setVendorStatuses((prev) => ({ ...prev, [vendorName]: updatedStatus }));
-        if (updatedStatus === 'AUTO-ROUTE') {
+        if (updatedStatus === 'AUTO-ROUTE' || updatedStatus === 'auto_route') {
           addToast(`🚀 ${vendorName} will now route automatically!`, 'success', 6000);
+          setConfettiTrigger(false);
+          setTimeout(() => setConfettiTrigger(true), 50);
         } else {
           addToast(`Invoice routed to ${entityId}`, 'success');
         }
@@ -231,22 +308,10 @@ export default function ReviewQueue() {
 
   return (
     <div className="p-6 flex flex-col gap-6">
+      <ConfettiEffect trigger={confettiTrigger} />
+
       {pending.length === 0 ? (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="flex flex-col items-center justify-center py-20 gap-4"
-        >
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ delay: 0.2, type: 'spring', stiffness: 300 }}
-          >
-            <CheckCircle className="w-16 h-16 text-green-400" />
-          </motion.div>
-          <h2 className="text-ivory text-xl font-semibold">All clear</h2>
-          <p className="text-silver text-sm">No invoices awaiting review</p>
-        </motion.div>
+        <EmptyState />
       ) : (
         <div>
           <div className="flex items-center justify-between mb-4">

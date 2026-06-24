@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, ChevronDown, ChevronUp, Globe, Mail, Folder, FlaskConical } from 'lucide-react';
+import { Download, ChevronDown, ChevronUp, Globe, Mail, Folder, FlaskConical, Search } from 'lucide-react';
 import { useInvoices } from '../hooks/useInvoices';
 import { useToast } from '../components/Common/Toast';
+import { TableRowSkeleton } from '../components/Common/Skeleton';
 import client from '../api/client';
 
 function formatCurrency(v) {
@@ -117,12 +118,45 @@ function ExpandedRow({ invoice }) {
   );
 }
 
+function useDebounce(value, delay) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
 export default function AuditLog() {
   const [expandedId, setExpandedId] = useState(null);
+  const [searchInput, setSearchInput] = useState('');
   const { addToast } = useToast();
   const {
     invoices, loading, error, total, page, totalPages, setPage, filters, setFilters
   } = useInvoices(20);
+
+  useEffect(() => {
+    document.title = 'Audit Log | Invoice Routing Intelligence';
+  }, []);
+
+  const debouncedSearch = useDebounce(searchInput, 150);
+
+  const filteredInvoices = useMemo(() => {
+    if (!debouncedSearch.trim()) return invoices;
+    const q = debouncedSearch.toLowerCase();
+    return invoices.filter((inv) => {
+      const fields = [
+        inv.vendor_name,
+        inv.vendor,
+        inv.vendor_name_raw,
+        inv.vendor_canonical,
+        inv.entity_name,
+        inv.entity,
+        inv.invoice_number,
+      ];
+      return fields.some((f) => f && String(f).toLowerCase().includes(q));
+    });
+  }, [invoices, debouncedSearch]);
 
   const exportExcel = async () => {
     try {
@@ -142,8 +176,25 @@ export default function AuditLog() {
 
   return (
     <div className="p-6 flex flex-col gap-4">
-      {/* Filters */}
+      {/* Filters + search */}
       <div className="flex flex-wrap items-center gap-3">
+        {/* Search box */}
+        <div className="relative flex items-center">
+          <Search className="absolute left-3 w-4 h-4 text-steel pointer-events-none" />
+          <input
+            type="text"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search vendor, entity, invoice #..."
+            className="bg-navy border border-cobalt text-ivory text-sm rounded-lg pl-9 pr-4 py-2 w-64 focus:outline-none focus:border-gold/50 placeholder:text-steel"
+          />
+          {debouncedSearch && (
+            <span className="ml-2 text-xs text-silver whitespace-nowrap">
+              {filteredInvoices.length} result{filteredInvoices.length !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+
         <div className="flex flex-wrap gap-2 flex-1">
           <select
             value={filters.entity}
@@ -210,21 +261,19 @@ export default function AuditLog() {
             </thead>
             <tbody>
               {loading && invoices.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="text-center py-12 text-silver">
-                    <div className="w-6 h-6 border-2 border-gold border-t-transparent rounded-full animate-spin mx-auto" />
-                  </td>
-                </tr>
+                <TableRowSkeleton rows={5} cols={9} />
               ) : error ? (
                 <tr>
                   <td colSpan={9} className="text-center py-12 text-red-400 text-sm">{error}</td>
                 </tr>
-              ) : invoices.length === 0 ? (
+              ) : filteredInvoices.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="text-center py-12 text-silver">No invoices found</td>
+                  <td colSpan={9} className="text-center py-12 text-silver">
+                    {debouncedSearch ? `No results for "${debouncedSearch}"` : 'No invoices found'}
+                  </td>
                 </tr>
               ) : (
-                invoices.map((inv, i) => (
+                filteredInvoices.map((inv, i) => (
                   <>
                     <tr
                       key={inv.id || i}

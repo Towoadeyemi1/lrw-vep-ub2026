@@ -156,6 +156,7 @@ function SampleTab({ samples, sampleId, onSelect }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function ProcessInvoice() {
+  useEffect(() => { document.title = 'Process Invoice | Invoice Routing Intelligence'; }, []);
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState(0);
   const [file, setFile] = useState(null);

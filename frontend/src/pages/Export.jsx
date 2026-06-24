@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Download, FileSpreadsheet, Archive, CheckCircle } from 'lucide-react';
 import { useToast } from '../components/Common/Toast';
 import client from '../api/client';
@@ -36,6 +36,7 @@ invoice-archive/
 `.trim();
 
 export default function Export() {
+  useEffect(() => { document.title = 'Export | Invoice Routing Intelligence'; }, []);
   const [xlLoading, setXlLoading] = useState(false);
   const [zipLoading, setZipLoading] = useState(false);
   const [xlDone, setXlDone] = useState(false);

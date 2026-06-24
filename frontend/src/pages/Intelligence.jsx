@@ -1,11 +1,16 @@
-import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
-import { Brain, Building2 } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Brain, Building2, X, Copy, Check, ExternalLink } from 'lucide-react';
+import { LineChart, Line, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 import { useVendors } from '../hooks/useVendors';
 import { useDashboard } from '../hooks/useDashboard';
 import { VendorCard } from '../components/Vendor/VendorCard';
+import { StatusBadge } from '../components/Vendor/StatusBadge';
 import { EntityBadge } from '../components/Common/EntityBadge';
 import client from '../api/client';
+
+document.title = 'Intelligence | Invoice Routing Intelligence';
 
 function formatCurrency(v) {
   if (!v && v !== 0) return '—';
@@ -40,6 +45,206 @@ function getEmoji(event) {
   return e || '📋';
 }
 
+function ConfirmationDots({ count, max = 3 }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      {Array.from({ length: max }).map((_, i) => (
+        <span key={i} className={`text-base ${i < count ? 'text-gold' : 'text-steel'}`}>●</span>
+      ))}
+      <span className="text-xs text-silver ml-1">{count}/{max}</span>
+    </div>
+  );
+}
+
+function CopyButton({ text }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async (e) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback
+    }
+  }, [text]);
+
+  return (
+    <div className="relative inline-flex">
+      <button
+        onClick={handleCopy}
+        className="p-1 text-steel hover:text-gold transition-colors"
+        title="Copy to clipboard"
+      >
+        {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+      </button>
+      <AnimatePresence>
+        {copied && (
+          <motion.div
+            initial={{ opacity: 0, y: 4, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.9 }}
+            className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 bg-green-700 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10 pointer-events-none"
+          >
+            Copied!
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function VendorDrawer({ vendor, onClose }) {
+  const navigate = useNavigate();
+  const confidenceHistory = vendor?.confidence_history || [];
+  const chartData = confidenceHistory.map((v, i) => ({ i, v }));
+
+  const rawNames = vendor?.raw_names || vendor?.name_variants || [];
+
+  return (
+    <>
+      {/* Backdrop */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.2 }}
+        className="fixed inset-0 z-40 bg-midnight/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      {/* Drawer panel */}
+      <motion.div
+        initial={{ x: 480 }}
+        animate={{ x: 0 }}
+        exit={{ x: 480 }}
+        transition={{ type: 'spring', stiffness: 320, damping: 35 }}
+        className="fixed top-0 right-0 z-50 h-full w-full max-w-[480px] bg-navy border-l border-cobalt shadow-2xl overflow-y-auto flex flex-col"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-cobalt shrink-0 bg-navy sticky top-0 z-10">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-lg bg-cobalt flex items-center justify-center shrink-0">
+              <Building2 className="w-5 h-5 text-gold" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-ivory font-bold text-sm truncate">{vendor.canonical_name || vendor.name}</h2>
+              <p className="text-silver text-xs">{vendor.category || 'Uncategorized'}</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 text-silver hover:text-ivory transition-colors shrink-0"
+            aria-label="Close drawer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 p-6 flex flex-col gap-6">
+          {/* Status + routing */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <StatusBadge status={vendor.status || 'NEW'} />
+            {vendor.default_entity && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-silver">Routes to:</span>
+                <EntityBadge vertical={vendor.default_entity_vertical || 'default'} />
+                <span className="text-ivory font-medium">{vendor.default_entity}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Meta grid */}
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            <div className="bg-midnight/40 rounded-lg p-3">
+              <p className="text-steel mb-1">First Seen</p>
+              <p className="text-ivory">{timeAgo(vendor.first_seen || vendor.created_at)}</p>
+            </div>
+            <div className="bg-midnight/40 rounded-lg p-3">
+              <p className="text-steel mb-1">Last Seen</p>
+              <p className="text-ivory">{timeAgo(vendor.last_seen || vendor.updated_at)}</p>
+            </div>
+            <div className="bg-midnight/40 rounded-lg p-3">
+              <p className="text-steel mb-1">Invoice Count</p>
+              <p className="text-ivory font-semibold">{vendor.invoice_count || 0}</p>
+            </div>
+            <div className="bg-midnight/40 rounded-lg p-3">
+              <p className="text-steel mb-1">Avg Amount</p>
+              <p className="text-ivory font-semibold">{formatCurrency(vendor.average_amount)}</p>
+            </div>
+          </div>
+
+          {/* Confirmations */}
+          <div>
+            <p className="text-silver text-xs uppercase font-medium mb-2">Confirmations</p>
+            <ConfirmationDots count={vendor.confirmation_count || 0} max={3} />
+            {vendor.default_entity && (
+              <p className="text-xs text-silver mt-2">
+                Confirmed entity: <span className="text-ivory font-medium">{vendor.default_entity}</span>
+              </p>
+            )}
+          </div>
+
+          {/* Confidence trend */}
+          {chartData.length > 1 && (
+            <div>
+              <p className="text-silver text-xs uppercase font-medium mb-3">Confidence Trend</p>
+              <div className="h-24 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData}>
+                    <YAxis domain={[0, 100]} hide />
+                    <Tooltip
+                      contentStyle={{ background: '#0d1b2a', border: '1px solid #1e3a5f', borderRadius: 8 }}
+                      labelStyle={{ display: 'none' }}
+                      itemStyle={{ color: '#D4A820' }}
+                      formatter={(v) => [`${v}%`, 'Confidence']}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="v"
+                      stroke="#D4A820"
+                      strokeWidth={2}
+                      dot={false}
+                      activeDot={{ r: 4, fill: '#D4A820' }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* Raw names */}
+          {rawNames.length > 0 && (
+            <div>
+              <p className="text-silver text-xs uppercase font-medium mb-2">Name Variants Seen</p>
+              <div className="flex flex-col gap-1">
+                {rawNames.map((n, i) => (
+                  <p key={i} className="text-ivory text-xs font-mono bg-midnight/40 px-3 py-1.5 rounded">{n}</p>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer action */}
+        <div className="px-6 py-4 border-t border-cobalt shrink-0 bg-navy sticky bottom-0">
+          <button
+            onClick={() => {
+              navigate(`/audit?vendor=${encodeURIComponent(vendor.canonical_name || vendor.name)}`);
+              onClose();
+            }}
+            className="flex items-center gap-2 w-full justify-center bg-cobalt hover:bg-slate text-ivory text-sm font-medium py-2.5 rounded-xl transition-colors border border-cobalt"
+          >
+            <ExternalLink className="w-4 h-4 text-gold" />
+            View in Audit Log
+          </button>
+        </div>
+      </motion.div>
+    </>
+  );
+}
+
 function EntityRow({ entity, maxCount }) {
   const pct = maxCount > 0 ? (entity.invoice_count / maxCount) * 100 : 0;
   const accuracy = entity.routing_accuracy ?? entity.accuracy ?? 100;
@@ -72,6 +277,13 @@ function EntityRow({ entity, maxCount }) {
         </p>
         <p className="text-silver text-xs">accuracy</p>
       </div>
+      {/* Copy routing email */}
+      {entity.routing_email && (
+        <div className="flex items-center gap-1 text-xs shrink-0">
+          <span className="text-steel font-mono">{entity.routing_email}</span>
+          <CopyButton text={entity.routing_email} />
+        </div>
+      )}
     </div>
   );
 }
@@ -81,8 +293,10 @@ export default function Intelligence() {
   const { data: dashData } = useDashboard(30000);
   const [events, setEvents] = useState([]);
   const [eLoading, setELoading] = useState(true);
+  const [selectedVendor, setSelectedVendor] = useState(null);
 
   useEffect(() => {
+    document.title = 'Intelligence | Invoice Routing Intelligence';
     client.get('/system-events')
       .then((r) => setEvents(Array.isArray(r.data) ? r.data : r.data.events || []))
       .catch(() => {})
@@ -94,6 +308,16 @@ export default function Intelligence() {
 
   return (
     <div className="p-6 flex flex-col gap-6">
+      {/* Vendor drawer */}
+      <AnimatePresence>
+        {selectedVendor && (
+          <VendorDrawer
+            vendor={selectedVendor}
+            onClose={() => setSelectedVendor(null)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <div className="bg-gradient-to-r from-cobalt to-navy rounded-xl border border-cobalt p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -110,7 +334,7 @@ export default function Intelligence() {
         <div className="flex flex-col gap-4">
           <div>
             <h2 className="text-sm font-bold text-ivory uppercase tracking-wide">Vendor Intelligence</h2>
-            <p className="text-silver text-xs mt-1">The system builds a profile for every vendor it encounters.</p>
+            <p className="text-silver text-xs mt-1">Click any vendor card to see its full profile.</p>
           </div>
 
           {vLoading ? (
@@ -131,6 +355,10 @@ export default function Intelligence() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.05 }}
+                  className="cursor-pointer"
+                  onClick={() => setSelectedVendor(v)}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                 >
                   <VendorCard vendor={v} />
                 </motion.div>

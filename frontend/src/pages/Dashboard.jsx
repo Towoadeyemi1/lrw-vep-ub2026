@@ -2,9 +2,12 @@ import { useEffect, useState } from 'react';
 import { FileText, TrendingUp, Clock, Building2, Folder, Mail, CheckCircle } from 'lucide-react';
 import { useDashboard } from '../hooks/useDashboard';
 import { MetricCard } from '../components/Common/MetricCard';
+import { MetricCardSkeleton } from '../components/Common/Skeleton';
+import { AnimatedCounter } from '../components/Common/AnimatedCounter';
 import { ConfidenceChart } from '../components/Charts/ConfidenceChart';
 import { TierChart } from '../components/Charts/TierChart';
 import { EntityBadge } from '../components/Common/EntityBadge';
+import { useToast } from '../components/Common/Toast';
 import client from '../api/client';
 
 function formatCurrency(amount) {
@@ -120,10 +123,24 @@ function WatchFolderPanel({ data }) {
 }
 
 function EmailWatchPanel({ data }) {
+  const { addToast } = useToast();
   const email = data?.email_watch_address || 'invoices.inspirationtechcorp@gmail.com';
   const lastChecked = data?.email_last_checked;
   const processed = data?.emails_processed || 0;
   const secAgo = lastChecked ? Math.round((Date.now() - new Date(lastChecked)) / 1000) : null;
+  const [sending, setSending] = useState(false);
+
+  const handleSendTest = async () => {
+    setSending(true);
+    try {
+      await client.post('/watch-folder/test');
+      addToast('Test invoice submitted — watch the dashboard update in ~5 seconds', 'success', 6000);
+    } catch {
+      addToast('Failed to submit test invoice — check the server', 'error');
+    } finally {
+      setSending(false);
+    }
+  };
 
   return (
     <div className="bg-navy rounded-xl border border-cobalt shadow-lg p-5">
@@ -145,10 +162,27 @@ function EmailWatchPanel({ data }) {
         )}
         <p className="text-silver mt-1">Emails processed: <span className="text-ivory font-semibold">{processed}</span></p>
       </div>
-      <div className="bg-cobalt/30 border border-cobalt rounded-lg p-3">
+      <div className="bg-cobalt/30 border border-cobalt rounded-lg p-3 mb-3">
         <p className="text-xs text-silver mb-1">Send invoices to:</p>
         <p className="text-gold font-mono text-xs font-semibold">{email}</p>
       </div>
+      <button
+        onClick={handleSendTest}
+        disabled={sending}
+        className="w-full flex items-center justify-center gap-2 bg-gold hover:bg-amber disabled:opacity-60 text-midnight text-xs font-bold py-2 rounded-lg transition-colors"
+      >
+        {sending ? (
+          <>
+            <div className="w-3 h-3 border-2 border-midnight border-t-transparent rounded-full animate-spin" />
+            Sending...
+          </>
+        ) : (
+          <>
+            <Mail className="w-3.5 h-3.5" />
+            Send Test Invoice
+          </>
+        )}
+      </button>
     </div>
   );
 }
@@ -159,16 +193,23 @@ export default function Dashboard() {
   const [watchData, setWatchData] = useState(null);
 
   useEffect(() => {
+    document.title = 'Dashboard | Invoice Routing Intelligence';
+  }, []);
+
+  useEffect(() => {
     client.get('/system-events').then((r) => setEvents(Array.isArray(r.data) ? r.data : r.data.events || [])).catch(() => {});
     client.get('/watch-folder/status').then((r) => setWatchData(r.data)).catch(() => {});
   }, [data]);
 
   if (loading && !data) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-4 border-gold border-t-transparent rounded-full animate-spin" />
-          <p className="text-silver text-sm">Loading dashboard...</p>
+      <div className="flex flex-col gap-6 p-6">
+        <MetricCardSkeleton />
+        <div className="flex items-center justify-center h-32">
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-10 h-10 border-4 border-gold border-t-transparent rounded-full animate-spin" />
+            <p className="text-silver text-sm">Loading dashboard...</p>
+          </div>
         </div>
       </div>
     );
@@ -190,33 +231,37 @@ export default function Dashboard() {
   const entities = data?.entities || data?.entity_stats || [];
   const maxVol = Math.max(...entities.map((e) => e.invoice_count || 0), 1);
 
+  const totalProcessed = metrics.total_processed || metrics.total_invoices || 0;
+  const pendingReview = metrics.pending_review || metrics.pending_count || 0;
+  const knownVendors = metrics.known_vendors || metrics.vendor_count || 0;
+
   return (
     <div className="flex flex-col gap-6 p-6">
       {/* Metric cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <MetricCard
           label="Total Processed"
-          value={metrics.total_processed || metrics.total_invoices || 0}
+          value={<AnimatedCounter value={totalProcessed} />}
           icon={FileText}
           subLabel="invoices processed"
         />
         <MetricCard
           label="Auto-Routed"
-          value={`${autoRoutePct}%`}
+          value={<AnimatedCounter value={autoRoutePct} suffix="%" decimals={0} />}
           icon={TrendingUp}
           valueColor={autoRouteColor}
           subLabel="of all invoices"
         />
         <MetricCard
           label="Pending Review"
-          value={metrics.pending_review || metrics.pending_count || 0}
+          value={<AnimatedCounter value={pendingReview} />}
           icon={Clock}
-          valueColor={(metrics.pending_review || 0) > 0 ? 'text-red-400' : 'text-green-400'}
-          subLabel={metrics.pending_review > 0 ? 'requires attention' : 'all clear'}
+          valueColor={pendingReview > 0 ? 'text-red-400' : 'text-green-400'}
+          subLabel={pendingReview > 0 ? 'requires attention' : 'all clear'}
         />
         <MetricCard
           label="Known Vendors"
-          value={metrics.known_vendors || metrics.vendor_count || 0}
+          value={<AnimatedCounter value={knownVendors} />}
           icon={Building2}
           subLabel={`${metrics.auto_routing_vendors || 0} auto-routing`}
         />
