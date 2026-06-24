@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Brain, Building2, X, Copy, Check, ExternalLink } from 'lucide-react';
+import { Brain, Building2, X, Copy, Check, ExternalLink, ClipboardCheck, Upload } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 import { useVendors } from '../hooks/useVendors';
 import { useDashboard } from '../hooks/useDashboard';
@@ -97,10 +97,31 @@ function CopyButton({ text }) {
 
 function VendorDrawer({ vendor, onClose }) {
   const navigate = useNavigate();
+  const [hasPending, setHasPending] = useState(false);
+
   const confidenceHistory = vendor?.confidence_history || [];
   const chartData = confidenceHistory.map((v, i) => ({ i, v }));
-
   const rawNames = vendor?.raw_names || vendor?.name_variants || [];
+
+  const status = (vendor.status || 'new').toLowerCase();
+  const isAutoRoute = status === 'auto_route';
+  const confirmations = vendor.confirmation_count || 0;
+  const threshold = vendor.auto_route_threshold || 3;
+  const remaining = Math.max(0, threshold - confirmations);
+
+  useEffect(() => {
+    if (isAutoRoute) return;
+    client.get('/review-queue')
+      .then((r) => {
+        const items = Array.isArray(r.data) ? r.data : [];
+        const canonical = (vendor.canonical_name || vendor.name || '').toLowerCase();
+        setHasPending(items.some((item) => {
+          const v = (item.vendor_name || '').toLowerCase();
+          return v === canonical || v.includes(canonical) || canonical.includes(v);
+        }));
+      })
+      .catch(() => {});
+  }, [vendor, isAutoRoute]);
 
   return (
     <>
@@ -227,18 +248,51 @@ function VendorDrawer({ vendor, onClose }) {
           )}
         </div>
 
-        {/* Footer action */}
-        <div className="px-6 py-4 border-t border-cobalt shrink-0 bg-navy sticky bottom-0">
-          <button
-            onClick={() => {
-              navigate(`/audit?vendor=${encodeURIComponent(vendor.canonical_name || vendor.name)}`);
-              onClose();
-            }}
-            className="flex items-center gap-2 w-full justify-center bg-cobalt hover:bg-slate text-ivory text-sm font-medium py-2.5 rounded-xl transition-colors border border-cobalt"
-          >
-            <ExternalLink className="w-4 h-4 text-gold" />
-            View in Audit Log
-          </button>
+        {/* Footer — contextual action based on vendor state */}
+        <div className="px-6 py-4 border-t border-cobalt shrink-0 bg-navy sticky bottom-0 flex flex-col gap-2">
+          {isAutoRoute ? (
+            <button
+              onClick={() => { navigate(`/audit?vendor=${encodeURIComponent(vendor.canonical_name || vendor.name)}`); onClose(); }}
+              className="flex items-center gap-2 w-full justify-center bg-cobalt hover:bg-slate text-ivory text-sm font-medium py-2.5 rounded-xl transition-colors border border-cobalt"
+            >
+              <ExternalLink className="w-4 h-4 text-gold" />
+              View Invoice History
+            </button>
+          ) : hasPending ? (
+            <>
+              <button
+                onClick={() => { navigate('/review-queue'); onClose(); }}
+                className="flex items-center gap-2 w-full justify-center bg-gold hover:bg-amber text-midnight text-sm font-bold py-2.5 rounded-xl transition-colors"
+              >
+                <ClipboardCheck className="w-4 h-4" />
+                Review Pending Invoice
+                <span className="text-xs opacity-70 font-medium">— {remaining} more to auto-route</span>
+              </button>
+              <button
+                onClick={() => { navigate(`/audit?vendor=${encodeURIComponent(vendor.canonical_name || vendor.name)}`); onClose(); }}
+                className="flex items-center gap-1.5 w-full justify-center text-steel hover:text-silver text-xs py-1 transition-colors"
+              >
+                <ExternalLink className="w-3 h-3" /> View History
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => { navigate('/process'); onClose(); }}
+                className="flex items-center gap-2 w-full justify-center bg-gold hover:bg-amber text-midnight text-sm font-bold py-2.5 rounded-xl transition-colors"
+              >
+                <Upload className="w-4 h-4" />
+                Process Another Invoice
+                <span className="text-xs opacity-70 font-medium">— {remaining} more to auto-route</span>
+              </button>
+              <button
+                onClick={() => { navigate(`/audit?vendor=${encodeURIComponent(vendor.canonical_name || vendor.name)}`); onClose(); }}
+                className="flex items-center gap-1.5 w-full justify-center text-steel hover:text-silver text-xs py-1 transition-colors"
+              >
+                <ExternalLink className="w-3 h-3" /> View History
+              </button>
+            </>
+          )}
         </div>
       </motion.div>
     </>
