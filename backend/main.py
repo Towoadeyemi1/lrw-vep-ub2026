@@ -485,7 +485,7 @@ async def get_dashboard(
                 "id": ev.id,
                 "event_type": ev.event_type,
                 "description": ev.description,
-                "metadata": _safe_json(ev.metadata),
+                "metadata": _safe_json(ev.event_metadata),
                 "created_at": ev.created_at.isoformat() if ev.created_at else None,
             }
             for ev in events
@@ -544,7 +544,7 @@ async def get_system_events(
             "id": ev.id,
             "event_type": ev.event_type,
             "description": ev.description,
-            "metadata": _safe_json(ev.metadata),
+            "metadata": _safe_json(ev.event_metadata),
             "created_at": ev.created_at.isoformat() if ev.created_at else None,
         }
         for ev in events

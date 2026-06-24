@@ -116,5 +116,5 @@ class SystemEvent(Base):
     id = Column(String, primary_key=True)
     event_type = Column(String, nullable=False)
     description = Column(Text, nullable=True)
-    metadata = Column(Text, default="{}")
+    event_metadata = Column(Text, default="{}")
     created_at = Column(DateTime, default=datetime.utcnow)

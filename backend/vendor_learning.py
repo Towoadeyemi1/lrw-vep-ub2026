@@ -344,7 +344,7 @@ def _log_event(
         id=str(uuid.uuid4()),
         event_type=event_type,
         description=description,
-        metadata=json.dumps(metadata or {}),
+        event_metadata=json.dumps(metadata or {}),
         created_at=datetime.utcnow(),
     )
     db.add(event)
