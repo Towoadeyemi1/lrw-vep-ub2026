@@ -1,6 +1,6 @@
 import { FileText, Image, File } from 'lucide-react';
 
-function TextInvoiceDoc({ content }) {
+export function TextInvoiceDoc({ content }) {
   const lines = (content || '').trim().split('\n');
 
   return (
