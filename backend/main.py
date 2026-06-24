@@ -1051,6 +1051,51 @@ async def email_status(
     return email_watcher.get_status()
 
 
+# ── Pipeline status (live indicator) ──────────────────────────────────────────
+
+
+@app.get("/api/pipeline/status")
+async def pipeline_status(
+    _auth: bool = Depends(auth.require_auth),
+    db: Session = Depends(get_db),
+):
+    """Return lightweight snapshot for the live pipeline indicator bar."""
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    today_count = db.query(RoutingDecision).filter(
+        RoutingDecision.created_at >= today_start
+    ).count()
+
+    pending_review = db.query(ReviewQueue).filter(
+        ReviewQueue.status == "pending"
+    ).count()
+
+    last = (
+        db.query(RoutingDecision)
+        .order_by(RoutingDecision.created_at.desc())
+        .first()
+    )
+
+    last_decision = None
+    if last:
+        last_decision = {
+            "id": last.id,
+            "vendor": last.vendor_canonical or last.vendor_name_raw or "Unknown",
+            "entity": last.entity_name or "—",
+            "status": last.routing_status or "unknown",
+            "confidence": last.confidence_score,
+            "tier": last.tier_used,
+            "created_at": last.created_at.isoformat() if last.created_at else None,
+        }
+
+    return {
+        "today_count": today_count,
+        "pending_review": pending_review,
+        "watcher_active": folder_watcher.get_status().get("running", False),
+        "last_decision": last_decision,
+    }
+
+
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

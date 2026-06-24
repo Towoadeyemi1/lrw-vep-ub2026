@@ -5,6 +5,7 @@ import { ToastProvider } from './components/Common/Toast';
 import { PageTransition } from './components/Common/PageTransition';
 import { Sidebar } from './components/Layout/Sidebar';
 import { Header } from './components/Layout/Header';
+import { LivePipelineBar } from './components/Common/LivePipelineBar';
 
 import Dashboard from './pages/Dashboard';
 import ProcessInvoice from './pages/ProcessInvoice';
@@ -41,6 +42,7 @@ function Layout({ children }) {
       <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
       <div className="flex flex-col flex-1 min-w-0">
         <Header onMenuClick={() => setMobileOpen(true)} />
+        <LivePipelineBar />
         <main className="flex-1 overflow-y-auto">
           {children}
         </main>
