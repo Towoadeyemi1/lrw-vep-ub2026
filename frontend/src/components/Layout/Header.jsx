@@ -1,6 +1,6 @@
 import { useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { Bell } from 'lucide-react';
+import { Bell, Menu } from 'lucide-react';
 import client from '../../api/client';
 
 const PAGE_TITLES = {
@@ -11,9 +11,10 @@ const PAGE_TITLES = {
   '/intelligence': 'Intelligence',
   '/export': 'Export',
   '/demo': 'Demo Controls',
+  '/howto': 'How To Use',
 };
 
-export function Header() {
+export function Header({ onMenuClick }) {
   const { pathname } = useLocation();
   const title = PAGE_TITLES[pathname] || 'Invoice Router';
   const [pending, setPending] = useState(0);
@@ -36,8 +37,16 @@ export function Header() {
   }, []);
 
   return (
-    <header className="bg-navy border-b border-cobalt px-6 py-3 flex items-center justify-between shrink-0">
+    <header className="bg-navy border-b border-cobalt px-4 md:px-6 py-3 flex items-center justify-between shrink-0">
       <div className="flex items-center gap-3">
+        {/* Hamburger — mobile only */}
+        <button
+          onClick={onMenuClick}
+          className="md:hidden p-1 text-silver hover:text-ivory transition-colors"
+          aria-label="Open menu"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
         <h1 className="text-ivory font-semibold text-lg">{title}</h1>
       </div>
       <div className="flex items-center gap-4">

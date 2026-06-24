@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertTriangle, CheckCircle, Trash2, Play, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Trash2, Play, RefreshCw, LayoutDashboard } from 'lucide-react';
 import { useToast } from '../components/Common/Toast';
 import client from '../api/client';
+
+document.title = 'Demo Controls | Invoice Routing Intelligence';
 
 const CLEARED = [
   'All processed invoices',
@@ -19,6 +21,15 @@ const KEPT = [
   'Sample invoice library',
   'Watch folder configuration',
   'Email watch settings',
+];
+
+const DEMO_SEQUENCE = [
+  'sample_01',
+  'sample_02',
+  'sample_03',
+  'sample_04',
+  'sample_05',
+  'sample_06',
 ];
 
 function ResetDialog({ onConfirm, onCancel, loading }) {
@@ -74,14 +85,197 @@ function ResetDialog({ onConfirm, onCancel, loading }) {
   );
 }
 
+function DemoSequenceOverlay({ onClose }) {
+  const navigate = useNavigate();
+  const [steps, setSteps] = useState(
+    DEMO_SEQUENCE.map((id) => ({ id, state: 'pending', label: id, result: null }))
+  );
+  const [current, setCurrent] = useState(-1);
+  const [done, setDone] = useState(false);
+  const [running, setRunning] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function run() {
+      setRunning(true);
+      for (let i = 0; i < DEMO_SEQUENCE.length; i++) {
+        if (cancelled) break;
+        const id = DEMO_SEQUENCE[i];
+        setCurrent(i);
+
+        setSteps((prev) =>
+          prev.map((s, idx) => (idx === i ? { ...s, state: 'processing' } : s))
+        );
+
+        try {
+          const res = await client.post(`/invoices/sample/${id}`);
+          const d = res.data || {};
+          const entityName = d.entity_name || d.entity || '—';
+          const confidence = d.confidence_score || d.confidence || 0;
+          const tier = d.tier_used || d.tier || '?';
+          const label = d.vendor_name || d.vendor || id;
+
+          setSteps((prev) =>
+            prev.map((s, idx) =>
+              idx === i
+                ? {
+                    ...s,
+                    state: 'done',
+                    label,
+                    result: { entityName, confidence, tier },
+                  }
+                : s
+            )
+          );
+        } catch (err) {
+          setSteps((prev) =>
+            prev.map((s, idx) =>
+              idx === i ? { ...s, state: 'error', result: { entityName: 'Error', confidence: 0, tier: '?' } } : s
+            )
+          );
+        }
+
+        if (i < DEMO_SEQUENCE.length - 1) {
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+      }
+
+      if (!cancelled) {
+        setDone(true);
+        setRunning(false);
+        setCurrent(DEMO_SEQUENCE.length);
+      }
+    }
+
+    run();
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const progress = Math.max(0, Math.min(DEMO_SEQUENCE.length, current + (done ? 1 : 0)));
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-midnight/80 backdrop-blur-sm p-4"
+    >
+      <motion.div
+        initial={{ scale: 0.92, opacity: 0, y: 20 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.92, opacity: 0, y: 20 }}
+        className="bg-navy border border-cobalt rounded-2xl shadow-2xl p-8 max-w-lg w-full"
+      >
+        <h2 className="text-ivory font-bold text-xl mb-1">Running Full Demo Sequence</h2>
+        <p className="text-silver text-sm mb-6">Processing 6 sample invoices to demonstrate the learning lifecycle...</p>
+
+        {/* Progress bar */}
+        <div className="mb-6">
+          <div className="flex justify-between text-xs text-silver mb-2">
+            <span>Progress</span>
+            <span>{Math.min(progress, DEMO_SEQUENCE.length)}/{DEMO_SEQUENCE.length}</span>
+          </div>
+          <div className="h-2 bg-cobalt rounded-full overflow-hidden">
+            <motion.div
+              className="h-full bg-gold rounded-full"
+              animate={{ width: `${(Math.min(progress, DEMO_SEQUENCE.length) / DEMO_SEQUENCE.length) * 100}%` }}
+              transition={{ duration: 0.4, ease: 'easeOut' }}
+            />
+          </div>
+        </div>
+
+        {/* Step list */}
+        <div className="flex flex-col gap-3 mb-6">
+          <AnimatePresence>
+            {steps.map((step, i) => (
+              <motion.div
+                key={step.id}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="flex items-center gap-3 text-sm"
+              >
+                <div className="w-6 shrink-0 flex items-center justify-center">
+                  {step.state === 'done' && <CheckCircle className="w-4 h-4 text-green-400" />}
+                  {step.state === 'processing' && (
+                    <div className="w-4 h-4 border-2 border-gold border-t-transparent rounded-full animate-spin" />
+                  )}
+                  {step.state === 'pending' && (
+                    <div className="w-4 h-4 rounded-full border-2 border-cobalt" />
+                  )}
+                  {step.state === 'error' && <span className="text-red-400 text-xs">✕</span>}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  {step.state === 'processing' && (
+                    <span className="text-gold">⟳ Processing: {step.label}...</span>
+                  )}
+                  {step.state === 'done' && step.result && (
+                    <span className="text-green-300">
+                      ✓ {step.label} → <span className="text-ivory">{step.result.entityName}</span>{' '}
+                      <span className="text-silver">({step.result.confidence}%) [T{step.result.tier}]</span>
+                    </span>
+                  )}
+                  {step.state === 'error' && (
+                    <span className="text-red-400">✕ {step.label} — failed</span>
+                  )}
+                  {step.state === 'pending' && (
+                    <span className="text-steel">{step.label}</span>
+                  )}
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+
+        {/* Completion */}
+        <AnimatePresence>
+          {done && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="border-t border-cobalt pt-5 flex flex-col gap-4"
+            >
+              <div className="flex items-start gap-3 bg-success-bg border border-green-600 rounded-xl p-4">
+                <CheckCircle className="w-5 h-5 text-green-400 shrink-0 mt-0.5" />
+                <p className="text-green-300 text-sm font-medium">
+                  ✓ Demo complete! 6 invoices processed. Visit the Dashboard to see results.
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => navigate('/')}
+                  className="flex items-center gap-2 bg-gold hover:bg-amber text-midnight font-bold px-5 py-2.5 rounded-xl transition-colors flex-1 justify-center"
+                >
+                  <LayoutDashboard className="w-4 h-4" />
+                  Go to Dashboard
+                </button>
+                <button
+                  onClick={onClose}
+                  className="border border-cobalt text-silver hover:text-ivory px-5 py-2.5 rounded-xl transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 export default function DemoControls() {
   const [showDialog, setShowDialog] = useState(false);
+  const [showDemo, setShowDemo] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [samples, setSamples] = useState([]);
   const navigate = useNavigate();
   const { addToast } = useToast();
 
   useEffect(() => {
+    document.title = 'Demo Controls | Invoice Routing Intelligence';
     client.get('/samples')
       .then((r) => setSamples(Array.isArray(r.data) ? r.data : r.data.samples || []))
       .catch(() => {});
@@ -111,7 +305,29 @@ export default function DemoControls() {
             loading={resetLoading}
           />
         )}
+        {showDemo && (
+          <DemoSequenceOverlay onClose={() => setShowDemo(false)} />
+        )}
       </AnimatePresence>
+
+      {/* Run Full Demo — prominent gold button */}
+      <div className="bg-gradient-to-r from-gold/10 to-amber/5 border border-gold/40 rounded-2xl p-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-ivory font-bold text-lg mb-1">▶ Run Full Demo</h2>
+            <p className="text-silver text-sm leading-relaxed max-w-lg">
+              Automatically process all 6 sample invoices in sequence and watch the system learn — from NEW vendor profiles to CONFIRMED auto-routing.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowDemo(true)}
+            className="flex items-center gap-2 bg-gold hover:bg-amber text-midnight font-bold text-base px-8 py-3.5 rounded-xl transition-all shadow-lg hover:shadow-gold/30 shrink-0 whitespace-nowrap"
+          >
+            <Play className="w-5 h-5" />
+            Run Full Demo
+          </button>
+        </div>
+      </div>
 
       {/* Danger Zone */}
       <div className="border-2 border-red-700 rounded-xl overflow-hidden">
