@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileText, TrendingUp, Clock, Building2, Folder, Mail, CheckCircle } from 'lucide-react';
 import { useDashboard } from '../hooks/useDashboard';
@@ -102,7 +102,30 @@ function EntityCard({ entity, maxVolume, onClick }) {
 }
 
 function WatchFolderPanel({ data }) {
+  const { addToast } = useToast();
   const folders = data?.vendor_folders || [];
+  const fileInputRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      await client.post('/invoices/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      addToast(`"${file.name}" processed via folder drop — dashboard will update shortly`, 'success', 6000);
+    } catch {
+      addToast('Upload failed — check the server is running', 'error');
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  };
+
   return (
     <div className="bg-navy rounded-xl border border-cobalt shadow-lg p-5">
       <div className="flex items-center justify-between mb-3">
@@ -116,9 +139,9 @@ function WatchFolderPanel({ data }) {
         </span>
       </div>
       <div className="bg-midnight/60 rounded-lg p-3 mb-3 font-mono text-xs text-silver">
-        <p className="text-steel">Incoming:</p>
+        <p className="text-steel">Server watch path:</p>
         <p className="text-ivory">/watched/incoming/</p>
-        <p className="text-steel mt-1">Drop invoice files here → auto-processed instantly</p>
+        <p className="text-steel mt-1">Files dropped there are auto-processed instantly</p>
       </div>
       {folders.length > 0 && (
         <div>
@@ -130,8 +153,29 @@ function WatchFolderPanel({ data }) {
           </div>
         </div>
       )}
-      <button className="mt-3 w-full bg-cobalt hover:bg-slate text-silver hover:text-ivory text-xs font-medium py-2 rounded-lg transition-colors border border-cobalt">
-        Drop Test Invoice
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.png,.jpg,.jpeg,.docx,.txt"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+      <button
+        onClick={() => fileInputRef.current?.click()}
+        disabled={uploading}
+        className="mt-3 w-full flex items-center justify-center gap-2 bg-cobalt hover:bg-slate disabled:opacity-60 text-silver hover:text-ivory text-xs font-medium py-2 rounded-lg transition-colors border border-cobalt"
+      >
+        {uploading ? (
+          <>
+            <div className="w-3 h-3 border-2 border-silver border-t-transparent rounded-full animate-spin" />
+            Processing...
+          </>
+        ) : (
+          <>
+            <Folder className="w-3.5 h-3.5" />
+            Select Invoice File to Drop
+          </>
+        )}
       </button>
     </div>
   );

@@ -402,7 +402,7 @@ export default function Intelligence() {
               No vendor profiles yet. Process some invoices to start building intelligence.
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[600px] overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[620px] overflow-y-auto pr-1 pb-6 scroll-smooth">
               {vendors.map((v, i) => (
                 <motion.div
                   key={v.id || v.canonical_name || i}
